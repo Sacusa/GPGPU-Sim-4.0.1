@@ -476,8 +476,9 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
   // DRAM to L2 (texture) and icnt (not texture)
   if (!m_dram_L2_queue->empty()) {
     mem_fetch *mf = m_dram_L2_queue->top();
-    if (!m_config->m_L2_config.disabled() && m_L2cache->waiting_for_fill(mf) \
-            && (mf->get_inst().cache_op != CACHE_STREAMING)) {
+    if (!m_config->m_L2_config.disabled() &&
+        m_L2cache->waiting_for_fill(mf) &&
+        (CACHE_STREAMING != mf->get_inst().cache_op)) {
       if (m_L2cache->fill_port_free()) {
         mf->set_status(IN_PARTITION_L2_FILL_QUEUE,
                        m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
@@ -502,7 +503,8 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
     mem_fetch *mf = m_icnt_L2_queue->top();
     if (!m_config->m_L2_config.disabled() &&
         ((m_config->m_L2_texure_only && mf->istexture()) ||
-         (!m_config->m_L2_texure_only))) {
+         (!m_config->m_L2_texure_only)) &&
+        (CACHE_STREAMING != mf->get_inst().cache_op)) {
       // L2 is enabled and access is for L2
       bool output_full = m_L2_icnt_queue->full();
       bool port_free = m_L2cache->data_port_free();

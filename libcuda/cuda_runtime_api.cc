@@ -1337,6 +1337,27 @@ __host__ cudaError_t CUDARTAPI cudaMemcpyToSymbolInternal(
   return g_last_cudaError = cudaSuccess;
 }
 
+__host__ cudaError_t CUDARTAPI cudaMemcpyToSymbolAsyncInternal(
+    const char *symbol, const void *src, size_t count, size_t offset,
+    enum cudaMemcpyKind kind, cudaStream_t stream,
+    gpgpu_context *gpgpu_ctx = NULL) {
+  gpgpu_context *ctx;
+  if (gpgpu_ctx) {
+    ctx = gpgpu_ctx;
+  } else {
+    ctx = GPGPU_Context();
+  }
+  if (g_debug_execution >= 3) {
+    announce_call(__my_func__);
+  }
+  assert(kind == cudaMemcpyHostToDevice);
+  printf("GPGPU-Sim PTX: cudaMemcpyToSymbolAsync: symbol = %p\n", symbol);
+  struct CUstream_st *s = (struct CUstream_st *)stream;
+  ctx->the_gpgpusim->g_stream_manager->push(
+      stream_operation(src, symbol, count, offset, s));
+  return g_last_cudaError = cudaSuccess;
+}
+
 __host__ cudaError_t CUDARTAPI cudaMemcpyFromSymbolInternal(
     void *dst, const char *symbol, size_t count, size_t offset __dv(0),
     enum cudaMemcpyKind kind __dv(cudaMemcpyDeviceToHost),
@@ -2429,6 +2450,13 @@ __host__ cudaError_t CUDARTAPI cudaMemcpyToSymbol(
     const char *symbol, const void *src, size_t count, size_t offset __dv(0),
     enum cudaMemcpyKind kind __dv(cudaMemcpyHostToDevice)) {
   return cudaMemcpyToSymbolInternal(symbol, src, count, offset, kind);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemcpyToSymbolAsync(
+    const char *symbol, const void *src, size_t count, size_t offset,
+    enum cudaMemcpyKind kind, cudaStream_t stream) {
+  return cudaMemcpyToSymbolAsyncInternal(symbol, src, count, offset, kind,
+          stream);
 }
 
 __host__ cudaError_t CUDARTAPI cudaMemcpyFromSymbol(

@@ -278,30 +278,30 @@ void dram_t::scheduler_fifo() {
     bkn = head_mrqq->bk;
 
     if (head_mrqq->is_pim) {
-        assert(m_config->num_pim_units > 0);
+      assert(m_config->num_pim_units > 0);
 
-        unsigned int bank_low = (bkn / m_config->num_pim_units) * \
-                                m_config->num_pim_units;
-        unsigned int bank_high = bank_low + m_config->num_pim_units;
+      unsigned int bank_low = (bkn / m_config->num_pim_units) * \
+                              m_config->num_pim_units;
+      unsigned int bank_high = bank_low + m_config->num_pim_units;
 
-        bool can_schedule = true;
+      bool can_schedule = true;
 
+      for (unsigned int b = bank_low; b < bank_high; b++) {
+        if (bk[b]->mrq) {
+          can_schedule = false;
+          break;
+        }
+      }
+
+      if (can_schedule) {
+        head_mrqq = mrqq->pop();
         for (unsigned int b = bank_low; b < bank_high; b++) {
-            if (bk[b]->mrq) {
-                can_schedule = false;
-                break;
-            }
+          bk[b]->mrq = head_mrqq;
         }
-
-        if (can_schedule) {
-            head_mrqq = mrqq->pop();
-            for (unsigned int b = bank_low; b < bank_high; b++) {
-                bk[b]->mrq = head_mrqq;
-            }
-        }
+      }
     }
     else {
-        if (!bk[bkn]->mrq) bk[bkn]->mrq = mrqq->pop();
+      if (!bk[bkn]->mrq) bk[bkn]->mrq = mrqq->pop();
     }
   }
 }
@@ -324,10 +324,10 @@ void dram_t::cycle() {
 
       bool is_req_done = false;
       if (cmd->is_pim) {
-          assert(m_config->num_pim_units > 0);
-          is_req_done = cmd->dqbytes >= (cmd->nbytes*m_config->num_pim_units);
+        assert(m_config->num_pim_units > 0);
+        is_req_done = cmd->dqbytes >= (cmd->nbytes*m_config->num_pim_units);
       } else {
-          is_req_done = cmd->dqbytes >= cmd->nbytes;
+        is_req_done = cmd->dqbytes >= cmd->nbytes;
       }
 
       if (is_req_done) {

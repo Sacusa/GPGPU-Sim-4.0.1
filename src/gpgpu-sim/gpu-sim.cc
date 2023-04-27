@@ -215,6 +215,10 @@ void memory_config::reg_options(class OptionParser *opp) {
       "elimnate_rw_turnaround i.e set tWTR and tRTW = 0", "0");
   option_parser_register(opp, "-icnt_flit_size", OPT_UINT32, &icnt_flit_size,
                          "icnt_flit_size", "32");
+
+  option_parser_register(opp, "-gpgpu_dram_num_pim_units", OPT_UINT32,
+                         &num_pim_units, "Number of PIM units", "0");
+
   m_address_mapping.addrdec_setoption(opp);
 }
 

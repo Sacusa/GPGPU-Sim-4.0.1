@@ -65,6 +65,8 @@ class dram_req_t {
   unsigned int insertion_time;
   class mem_fetch *data;
   class gpgpu_sim *m_gpu;
+
+  bool is_pim;
 };
 
 struct bankgrp_t {

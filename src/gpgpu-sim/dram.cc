@@ -239,6 +239,8 @@ dram_req_t::dram_req_t(class mem_fetch *mf, unsigned banks,
   addr = mf->get_addr();
   insertion_time = (unsigned)m_gpu->gpu_sim_cycle;
   rw = data->get_is_write() ? WRITE : READ;
+
+  is_pim = (CACHE_STREAMING == data->get_inst().cache_op);
 }
 
 void dram_t::push(class mem_fetch *data) {
@@ -274,7 +276,33 @@ void dram_t::scheduler_fifo() {
         IN_PARTITION_MC_BANK_ARB_QUEUE,
         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
     bkn = head_mrqq->bk;
-    if (!bk[bkn]->mrq) bk[bkn]->mrq = mrqq->pop();
+
+    if (head_mrqq->is_pim) {
+        assert(m_config->num_pim_units > 0);
+
+        unsigned int bank_low = (bkn / m_config->num_pim_units) * \
+                                m_config->num_pim_units;
+        unsigned int bank_high = bank_low + m_config->num_pim_units;
+
+        bool can_schedule = true;
+
+        for (unsigned int b = bank_low; b < bank_high; b++) {
+            if (bk[b]->mrq) {
+                can_schedule = false;
+                break;
+            }
+        }
+
+        if (can_schedule) {
+            head_mrqq = mrqq->pop();
+            for (unsigned int b = bank_low; b < bank_high; b++) {
+                bk[b]->mrq = head_mrqq;
+            }
+        }
+    }
+    else {
+        if (!bk[bkn]->mrq) bk[bkn]->mrq = mrqq->pop();
+    }
   }
 }
 
@@ -294,7 +322,15 @@ void dram_t::cycle() {
 #endif
       cmd->dqbytes += m_config->dram_atom_size;
 
-      if (cmd->dqbytes >= cmd->nbytes) {
+      bool is_req_done = false;
+      if (cmd->is_pim) {
+          assert(m_config->num_pim_units > 0);
+          is_req_done = cmd->dqbytes >= (cmd->nbytes*m_config->num_pim_units);
+      } else {
+          is_req_done = cmd->dqbytes >= cmd->nbytes;
+      }
+
+      if (is_req_done) {
         mem_fetch *data = cmd->data;
         data->set_status(IN_PARTITION_MC_RETURNQ,
                          m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);

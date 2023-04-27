@@ -315,6 +315,8 @@ class memory_config {
   bool m_perf_sim_memcpy;
   bool simple_dram_model;
 
+  unsigned num_pim_units;
+
   gpgpu_context *gpgpu_ctx;
 };
 

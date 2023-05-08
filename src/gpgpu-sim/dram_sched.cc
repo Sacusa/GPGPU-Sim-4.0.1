@@ -73,8 +73,6 @@ frfcfs_scheduler::frfcfs_scheduler(const memory_config *config, dram_t *dm,
     m_pim_queue = new std::list<dram_req_t *>;
     m_pim_queue->clear();
   }
-
-  m_mode = READ_MODE;
 }
 
 void frfcfs_scheduler::add_req(dram_req_t *req) {
@@ -118,7 +116,7 @@ void frfcfs_scheduler::data_collection(unsigned int bank) {
   m_stats->num_activates[m_dram->id][bank]++;
 }
 
-enum memory_mode frfcfs_scheduler::update_mode() {
+void frfcfs_scheduler::update_mode() {
   bool have_reads = false, have_writes = false;
 
   for (unsigned b = 0; b < m_config->nbk; b++) {
@@ -130,12 +128,13 @@ enum memory_mode frfcfs_scheduler::update_mode() {
 
   bool have_pim = !m_pim_queue->empty();
 
-  if (m_mode == PIM_MODE) {
+  if (m_dram->mode == PIM_MODE) {
     if ((m_num_pim_pending < m_config->pim_low_watermark)
         && (have_reads || have_writes)) {
       // Just switch to READ_MODE. The following code sequence will take care
       // of deciding whether we stay in READ_MODE or switch to WRITE_MODE.
-      m_mode = READ_MODE;
+      m_dram->mode = READ_MODE;
+      m_dram->num_mode_switches++;
 
 #ifdef DRAM_VERIFY
       printf("DRAM: Switching to non-PIM mode\n");
@@ -144,7 +143,8 @@ enum memory_mode frfcfs_scheduler::update_mode() {
   } else {
     if ((m_num_pim_pending >= m_config->pim_high_watermark)
         || (!have_reads && !have_writes && have_pim)) {
-      m_mode = PIM_MODE;
+      m_dram->mode = PIM_MODE;
+      m_dram->num_mode_switches++;
 
 #ifdef DRAM_VERIFY
       printf("DRAM: Switching to PIM mode\n");
@@ -153,20 +153,18 @@ enum memory_mode frfcfs_scheduler::update_mode() {
   }
 
   if (m_config->seperate_write_queue_enabled) {
-    if (m_mode == READ_MODE &&
+    if (m_dram->mode == READ_MODE &&
         ((m_num_write_pending >= m_config->write_high_watermark)
          || (!have_reads && have_writes)
          )) {
-      m_mode = WRITE_MODE;
-    } else if (m_mode == WRITE_MODE &&
+      m_dram->mode = WRITE_MODE;
+    } else if (m_dram->mode == WRITE_MODE &&
                ((m_num_write_pending < m_config->write_low_watermark)
                 || (have_reads && !have_writes)
                 )) {
-      m_mode = READ_MODE;
+      m_dram->mode = READ_MODE;
     }
   }
-
-  return m_mode;
 }
 
 dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
@@ -178,7 +176,7 @@ dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   std::list<std::list<dram_req_t *>::iterator> **m_current_last_row =
       m_last_row;
 
-  if (m_mode == WRITE_MODE) {
+  if (m_dram->mode == WRITE_MODE) {
     m_current_queue = m_write_queue;
     m_current_bins = m_write_bins;
     m_current_last_row = m_last_write_row;
@@ -300,7 +298,7 @@ void dram_t::scheduler_frfcfs() {
     sched->add_req(req);
   }
 
-  enum memory_mode mode = sched->update_mode();
+  sched->update_mode();
 
   if (mode == PIM_MODE) {
     assert(m_config->num_pim_units > 0);
@@ -343,6 +341,11 @@ void dram_t::scheduler_frfcfs() {
           hits_num++;
           hits_pim_num++;
         }
+
+        if (first_pim_issue_timestamp == 0) {
+          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
+                                      m_gpu->gpu_tot_sim_cycle;
+        }
       }
     }
   }
@@ -357,6 +360,12 @@ void dram_t::scheduler_frfcfs() {
         if (req) {
           prio = (prio + 1) % m_config->nbk;
           bk[b]->mrq = req;
+
+          if (first_non_pim_issue_timestamp == 0) {
+            first_non_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
+                                            m_gpu->gpu_tot_sim_cycle;
+          }
+
           break;
         }
       }

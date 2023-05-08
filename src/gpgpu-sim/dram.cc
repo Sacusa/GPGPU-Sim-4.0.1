@@ -157,6 +157,14 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     mrqq_Dist = StatCreate("mrqq_length", 1, queue_limit());
   else                                             // queue length is unlimited;
     mrqq_Dist = StatCreate("mrqq_length", 1, 64);  // track up to 64 entries
+
+  mode = READ_MODE;
+
+  num_mode_switches = 0;
+  first_non_pim_issue_timestamp = 0;
+  first_pim_issue_timestamp = 0;
+  last_non_pim_finish_timestamp = 0;
+  last_pim_finish_timestamp = 0;
 }
 
 bool dram_t::full(bool is_write, bool is_pim) const {
@@ -299,10 +307,32 @@ void dram_t::scheduler_fifo() {
         for (unsigned int b = bank_low; b < bank_high; b++) {
           bk[b]->mrq = head_mrqq;
         }
+
+        if (first_pim_issue_timestamp == 0) {
+          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
+                                      m_gpu->gpu_tot_sim_cycle;
+        }
       }
+
+      if (mode != PIM_MODE) {
+        num_mode_switches++;
+      }
+      mode = PIM_MODE;
     }
     else {
-      if (!bk[bkn]->mrq) bk[bkn]->mrq = mrqq->pop();
+      if (!bk[bkn]->mrq) {
+        bk[bkn]->mrq = mrqq->pop();
+
+        if (first_non_pim_issue_timestamp == 0) {
+          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
+                                      m_gpu->gpu_tot_sim_cycle;
+        }
+      }
+
+      if (mode == PIM_MODE) {
+        num_mode_switches++;
+      }
+      mode = READ_MODE;  // Doesn't matter what mode we set to
     }
   }
 }
@@ -325,13 +355,20 @@ void dram_t::cycle() {
 
       bool is_req_done = false;
       if (cmd->data->is_pim()) {
-        assert(m_config->num_pim_units > 0);
         is_req_done = cmd->dqbytes >= (cmd->nbytes*m_config->num_pim_units);
       } else {
         is_req_done = cmd->dqbytes >= cmd->nbytes;
       }
 
       if (is_req_done) {
+        if (cmd->data->is_pim()) {
+          last_pim_finish_timestamp = m_gpu->gpu_sim_cycle +
+                                      m_gpu->gpu_tot_sim_cycle;
+        } else {
+          last_non_pim_finish_timestamp = m_gpu->gpu_sim_cycle +
+                                          m_gpu->gpu_tot_sim_cycle;
+        }
+
         mem_fetch *data = cmd->data;
         data->set_status(IN_PARTITION_MC_RETURNQ,
                          m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
@@ -763,6 +800,8 @@ void dram_t::print(FILE *simFile) const {
   printf("\nRow_Buffer_Locality_read = %.6f", (float)hits_read_num / read_num);
   printf("\nRow_Buffer_Locality_write = %.6f",
          (float)hits_write_num / write_num);
+  printf("\nRow_Buffer_Locality_pim = %.6f",
+         (float)hits_pim_num / pim_num);
   printf("\nBank_Level_Parallism = %.6f",
          (float)banks_1time / banks_acess_total);
   printf("\nBank_Level_Parallism_Col = %.6f",
@@ -806,6 +845,13 @@ void dram_t::print(FILE *simFile) const {
   printf("n_ref = %llu \n", n_ref);
   printf("n_req = %llu \n", n_req);
   printf("total_req = %llu \n", n_rd + n_wr + n_rd_L2_A + n_wr_WB + n_pim);
+
+  printf("\nPIM statistics:\n");
+  printf("num_mode_switches = %llu\n",  num_mode_switches);
+  printf("first_non_pim_issue = %llu\n", first_non_pim_issue_timestamp);
+  printf("first_pim_issue = %llu\n", first_pim_issue_timestamp);
+  printf("last_non_pim_finish = %llu\n", last_non_pim_finish_timestamp);
+  printf("last_pim_finish = %llu\n", last_pim_finish_timestamp);
 
   printf("\nDual Bus Interface Util: \n");
   printf("issued_total_row = %llu \n", issued_total_row);

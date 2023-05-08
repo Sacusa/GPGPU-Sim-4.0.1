@@ -36,15 +36,13 @@
 #include "gpu-sim.h"
 #include "shader.h"
 
-enum memory_mode { READ_MODE = 0, WRITE_MODE, PIM_MODE };
-
 class frfcfs_scheduler {
  public:
   frfcfs_scheduler(const memory_config *config, dram_t *dm,
                    memory_stats_t *stats);
   void add_req(dram_req_t *req);
   void data_collection(unsigned bank);
-  enum memory_mode update_mode();
+  void update_mode();
   dram_req_t *schedule(unsigned bank, unsigned curr_row);
   dram_req_t *schedule_pim(bool pop_request);
   void update_pim_bank_statistics(unsigned bank, bool rowhit);
@@ -73,7 +71,6 @@ class frfcfs_scheduler {
 
   std::list<dram_req_t *> *m_pim_queue;
 
-  enum memory_mode m_mode;
   memory_stats_t *m_stats;
 };
 

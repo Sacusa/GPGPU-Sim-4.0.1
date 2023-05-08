@@ -49,6 +49,8 @@
 
 #define DRAM_VERIFY
 
+enum memory_mode { READ_MODE = 0, WRITE_MODE, PIM_MODE };
+
 class dram_req_t {
  public:
   dram_req_t(class mem_fetch *data, unsigned banks,
@@ -133,6 +135,7 @@ class dram_t {
   class memory_partition_unit *m_memory_partition_unit;
   class gpgpu_sim *m_gpu;
   unsigned int id;
+  enum memory_mode mode;
 
   // Power Model
   void set_dram_power_stats(unsigned &cmd, unsigned &activity, unsigned &nop,
@@ -231,6 +234,13 @@ class dram_t {
   unsigned int bwutil;
   unsigned int max_mrqs;
   unsigned int ave_mrqs;
+
+  // PIM statistics
+  unsigned long long num_mode_switches;
+  unsigned long long first_non_pim_issue_timestamp;
+  unsigned long long first_pim_issue_timestamp;
+  unsigned long long last_non_pim_finish_timestamp;
+  unsigned long long last_pim_finish_timestamp;
 
   class frfcfs_scheduler *m_frfcfs_scheduler;
 

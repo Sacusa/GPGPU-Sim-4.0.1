@@ -36,7 +36,7 @@
 #include "gpu-sim.h"
 #include "shader.h"
 
-enum memory_mode { READ_MODE = 0, WRITE_MODE };
+enum memory_mode { READ_MODE = 0, WRITE_MODE, PIM_MODE };
 
 class frfcfs_scheduler {
  public:
@@ -44,16 +44,21 @@ class frfcfs_scheduler {
                    memory_stats_t *stats);
   void add_req(dram_req_t *req);
   void data_collection(unsigned bank);
+  enum memory_mode update_mode();
   dram_req_t *schedule(unsigned bank, unsigned curr_row);
+  dram_req_t *schedule_pim(bool pop_request);
+  void update_pim_bank_statistics(unsigned bank, bool rowhit);
   void print(FILE *fp);
   unsigned num_pending() const { return m_num_pending; }
   unsigned num_write_pending() const { return m_num_write_pending; }
+  unsigned num_pim_pending() const { return m_num_pim_pending; }
 
  private:
   const memory_config *m_config;
   dram_t *m_dram;
   unsigned m_num_pending;
   unsigned m_num_write_pending;
+  unsigned m_num_pim_pending;
   std::list<dram_req_t *> *m_queue;
   std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> > *m_bins;
   std::list<std::list<dram_req_t *>::iterator> **m_last_row;
@@ -65,6 +70,8 @@ class frfcfs_scheduler {
   std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >
       *m_write_bins;
   std::list<std::list<dram_req_t *>::iterator> **m_last_write_row;
+
+  std::list<dram_req_t *> *m_pim_queue;
 
   enum memory_mode m_mode;
   memory_stats_t *m_stats;

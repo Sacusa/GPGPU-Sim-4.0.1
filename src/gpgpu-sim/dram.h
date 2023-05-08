@@ -47,6 +47,8 @@
 #define BANK_IDLE 'I'
 #define BANK_ACTIVE 'A'
 
+#define DRAM_VERIFY
+
 class dram_req_t {
  public:
   dram_req_t(class mem_fetch *data, unsigned banks,
@@ -65,8 +67,6 @@ class dram_req_t {
   unsigned int insertion_time;
   class mem_fetch *data;
   class gpgpu_sim *m_gpu;
-
-  bool is_pim;
 };
 
 struct bankgrp_t {
@@ -114,7 +114,7 @@ class dram_t {
          class memory_stats_t *stats, class memory_partition_unit *mp,
          class gpgpu_sim *gpu);
 
-  bool full(bool is_write) const;
+  bool full(bool is_write, bool is_pim) const;
   void print(FILE *simFile) const;
   void visualize() const;
   void print_stat(FILE *simFile);
@@ -187,6 +187,7 @@ class dram_t {
   unsigned long long n_wr_WB;
   unsigned long long n_req;
   unsigned long long max_mrqs_temp;
+  unsigned long long n_pim;
 
   // some statistics to see where BW is wasted?
   unsigned long long wasted_bw_row;
@@ -208,9 +209,11 @@ class dram_t {
   unsigned long long access_num;
   unsigned long long read_num;
   unsigned long long write_num;
+  unsigned long long pim_num;
   unsigned long long hits_num;
   unsigned long long hits_read_num;
   unsigned long long hits_write_num;
+  unsigned long long hits_pim_num;
   unsigned long long banks_1time;
   unsigned long long banks_acess_total;
   unsigned long long banks_acess_total_after;

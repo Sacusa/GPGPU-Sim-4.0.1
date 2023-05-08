@@ -110,6 +110,7 @@ memory_partition_unit::arbitration_metadata::arbitration_metadata(
   // the rest is shared among with other partitions
   m_private_credit_limit = 1;
   m_shared_credit_limit = config->gpgpu_frfcfs_dram_sched_queue_size +
+                          config->gpgpu_frfcfs_dram_pim_queue_size +
                           config->gpgpu_dram_return_queue_size -
                           (config->m_n_sub_partition_per_memory_channel - 1);
   if (config->seperate_write_queue_enabled)
@@ -267,7 +268,7 @@ void memory_partition_unit::simple_dram_model_cycle() {
     if (!m_sub_partition[spid]->L2_dram_queue_empty() &&
         can_issue_to_dram(spid)) {
       mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top();
-      if (m_dram->full(mf->is_write())) break;
+      if (m_dram->full(mf->is_write(), mf->is_pim())) break;
 
       m_sub_partition[spid]->L2_dram_queue_pop();
       MEMPART_DPRINTF(
@@ -329,7 +330,7 @@ void memory_partition_unit::dram_cycle() {
     if (!m_sub_partition[spid]->L2_dram_queue_empty() &&
         can_issue_to_dram(spid)) {
       mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top();
-      if (m_dram->full(mf->is_write())) break;
+      if (m_dram->full(mf->is_write(), mf->is_pim())) break;
 
       m_sub_partition[spid]->L2_dram_queue_pop();
       MEMPART_DPRINTF(
@@ -352,7 +353,8 @@ void memory_partition_unit::dram_cycle() {
   if (!m_dram_latency_queue.empty() &&
       ((m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle) >=
        m_dram_latency_queue.front().ready_cycle) &&
-      !m_dram->full(m_dram_latency_queue.front().req->is_write())) {
+      !m_dram->full(m_dram_latency_queue.front().req->is_write(),
+          m_dram_latency_queue.front().req->is_pim())) {
     mem_fetch *mf = m_dram_latency_queue.front().req;
     m_dram_latency_queue.pop_front();
     m_dram->push(mf);
@@ -478,7 +480,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
     mem_fetch *mf = m_dram_L2_queue->top();
     if (!m_config->m_L2_config.disabled() &&
         m_L2cache->waiting_for_fill(mf) &&
-        (CACHE_STREAMING != mf->get_inst().cache_op)) {
+        (!mf->is_pim())) {
       if (m_L2cache->fill_port_free()) {
         mf->set_status(IN_PARTITION_L2_FILL_QUEUE,
                        m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
@@ -504,7 +506,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
     if (!m_config->m_L2_config.disabled() &&
         ((m_config->m_L2_texure_only && mf->istexture()) ||
          (!m_config->m_L2_texure_only)) &&
-        (CACHE_STREAMING != mf->get_inst().cache_op)) {
+        (!mf->is_pim())) {
       // L2 is enabled and access is for L2
       bool output_full = m_L2_icnt_queue->full();
       bool port_free = m_L2cache->data_port_free();

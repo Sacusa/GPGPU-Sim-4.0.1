@@ -123,6 +123,7 @@ class memory_stats_t {
   unsigned total_n_access;
   unsigned total_n_reads;
   unsigned total_n_writes;
+  unsigned total_n_pim;
 };
 
 #endif /*MEM_LATENCY_STAT_H*/

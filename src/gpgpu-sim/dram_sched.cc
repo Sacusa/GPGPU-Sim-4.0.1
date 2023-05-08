@@ -38,6 +38,7 @@ frfcfs_scheduler::frfcfs_scheduler(const memory_config *config, dram_t *dm,
   m_stats = stats;
   m_num_pending = 0;
   m_num_write_pending = 0;
+  m_num_pim_pending = 0;
   m_dram = dm;
   m_queue = new std::list<dram_req_t *>[m_config->nbk];
   m_bins = new std::map<
@@ -53,6 +54,7 @@ frfcfs_scheduler::frfcfs_scheduler(const memory_config *config, dram_t *dm,
     curr_row_service_time[i] = 0;
     row_service_timestamp[i] = 0;
   }
+
   if (m_config->seperate_write_queue_enabled) {
     m_write_queue = new std::list<dram_req_t *>[m_config->nbk];
     m_write_bins = new std::map<
@@ -66,11 +68,21 @@ frfcfs_scheduler::frfcfs_scheduler(const memory_config *config, dram_t *dm,
       m_last_write_row[i] = NULL;
     }
   }
+
+  if (m_config->num_pim_units > 0) {
+    m_pim_queue = new std::list<dram_req_t *>;
+    m_pim_queue->clear();
+  }
+
   m_mode = READ_MODE;
 }
 
 void frfcfs_scheduler::add_req(dram_req_t *req) {
-  if (m_config->seperate_write_queue_enabled && req->data->is_write()) {
+  if (req->data->is_pim()) {
+    assert(m_num_pim_pending < m_config->gpgpu_frfcfs_dram_pim_queue_size);
+    m_num_pim_pending++;
+    m_pim_queue->push_front(req);
+  } else if (m_config->seperate_write_queue_enabled && req->data->is_write()) {
     assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
     m_num_write_pending++;
     m_write_queue[req->bk].push_front(req);
@@ -106,6 +118,57 @@ void frfcfs_scheduler::data_collection(unsigned int bank) {
   m_stats->num_activates[m_dram->id][bank]++;
 }
 
+enum memory_mode frfcfs_scheduler::update_mode() {
+  bool have_reads = false, have_writes = false;
+
+  for (unsigned b = 0; b < m_config->nbk; b++) {
+    have_reads = have_reads || !m_queue[b].empty();
+    if (m_config->seperate_write_queue_enabled) {
+      have_writes = have_writes || !m_write_queue[b].empty();
+    }
+  }
+
+  bool have_pim = !m_pim_queue->empty();
+
+  if (m_mode == PIM_MODE) {
+    if ((m_num_pim_pending < m_config->pim_low_watermark)
+        && (have_reads || have_writes)) {
+      // Just switch to READ_MODE. The following code sequence will take care
+      // of deciding whether we stay in READ_MODE or switch to WRITE_MODE.
+      m_mode = READ_MODE;
+
+#ifdef DRAM_VERIFY
+      printf("DRAM: Switching to non-PIM mode\n");
+#endif
+    }
+  } else {
+    if ((m_num_pim_pending >= m_config->pim_high_watermark)
+        || (!have_reads && !have_writes && have_pim)) {
+      m_mode = PIM_MODE;
+
+#ifdef DRAM_VERIFY
+      printf("DRAM: Switching to PIM mode\n");
+#endif
+    }
+  }
+
+  if (m_config->seperate_write_queue_enabled) {
+    if (m_mode == READ_MODE &&
+        ((m_num_write_pending >= m_config->write_high_watermark)
+         || (!have_reads && have_writes)
+         )) {
+      m_mode = WRITE_MODE;
+    } else if (m_mode == WRITE_MODE &&
+               ((m_num_write_pending < m_config->write_low_watermark)
+                || (have_reads && !have_writes)
+                )) {
+      m_mode = READ_MODE;
+    }
+  }
+
+  return m_mode;
+}
+
 dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   // row
   bool rowhit = true;
@@ -114,20 +177,6 @@ dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
       *m_current_bins = m_bins;
   std::list<std::list<dram_req_t *>::iterator> **m_current_last_row =
       m_last_row;
-
-  if (m_config->seperate_write_queue_enabled) {
-    if (m_mode == READ_MODE &&
-        ((m_num_write_pending >= m_config->write_high_watermark)
-         // || (m_queue[bank].empty() && !m_write_queue[bank].empty())
-         )) {
-      m_mode = WRITE_MODE;
-    } else if (m_mode == WRITE_MODE &&
-               ((m_num_write_pending < m_config->write_low_watermark)
-                //  || (!m_queue[bank].empty() && m_write_queue[bank].empty())
-                )) {
-      m_mode = READ_MODE;
-    }
-  }
 
   if (m_mode == WRITE_MODE) {
     m_current_queue = m_write_queue;
@@ -198,6 +247,28 @@ dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   return req;
 }
 
+dram_req_t *frfcfs_scheduler::schedule_pim(bool pop_request=false) {
+  if (m_num_pim_pending == 0) { return NULL; }
+
+  dram_req_t *pim_req = m_pim_queue->back();
+
+  if (pop_request) {
+    m_pim_queue->pop_back();
+    m_num_pim_pending--;
+  }
+
+  return pim_req;
+}
+
+void frfcfs_scheduler::update_pim_bank_statistics(unsigned bank, bool rowhit) {
+  if (!rowhit) {
+    data_collection(bank);
+  }
+
+  m_stats->concurrent_row_access[m_dram->id][bank]++;
+  m_stats->row_access[m_dram->id][bank]++;
+}
+
 void frfcfs_scheduler::print(FILE *fp) {
   for (unsigned b = 0; b < m_config->nbk; b++) {
     printf(" %u: queue length = %u\n", b, (unsigned)m_queue[b].size());
@@ -205,8 +276,9 @@ void frfcfs_scheduler::print(FILE *fp) {
 }
 
 void dram_t::scheduler_frfcfs() {
-  unsigned mrq_latency;
+  dram_req_t *req = NULL;
   frfcfs_scheduler *sched = m_frfcfs_scheduler;
+
   while (!mrqq->empty()) {
     dram_req_t *req = mrqq->pop();
 
@@ -215,7 +287,9 @@ void dram_t::scheduler_frfcfs() {
     // WRITE_ACK)
     m_stats->total_n_access++;
 
-    if (req->data->get_type() == WRITE_REQUEST) {
+    if (req->data->is_pim()) {
+      m_stats->total_n_pim++;
+    } else if (req->data->get_type() == WRITE_REQUEST) {
       m_stats->total_n_writes++;
     } else if (req->data->get_type() == READ_REQUEST) {
       m_stats->total_n_reads++;
@@ -226,32 +300,82 @@ void dram_t::scheduler_frfcfs() {
     sched->add_req(req);
   }
 
-  dram_req_t *req;
-  unsigned i;
-  for (i = 0; i < m_config->nbk; i++) {
-    unsigned b = (i + prio) % m_config->nbk;
-    if (!bk[b]->mrq) {
-      req = sched->schedule(b, bk[b]->curr_row);
+  enum memory_mode mode = sched->update_mode();
 
-      if (req) {
-        req->data->set_status(IN_PARTITION_MC_BANK_ARB_QUEUE,
-                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-        prio = (prio + 1) % m_config->nbk;
-        bk[b]->mrq = req;
-        if (m_config->gpgpu_memlatency_stat) {
-          mrq_latency = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle -
-                        bk[b]->mrq->timestamp;
-          m_stats->tot_mrq_latency += mrq_latency;
-          m_stats->tot_mrq_num++;
-          bk[b]->mrq->timestamp =
-              m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle;
-          m_stats->mrq_lat_table[LOGB2(mrq_latency)]++;
-          if (mrq_latency > m_stats->max_mrq_latency) {
-            m_stats->max_mrq_latency = mrq_latency;
+  if (mode == PIM_MODE) {
+    assert(m_config->num_pim_units > 0);
+
+    dram_req_t *req = sched->schedule_pim();
+
+    if (req) {
+      unsigned pim_group_id = req->bk / m_config->num_pim_units;
+
+      unsigned int bank_low = pim_group_id * m_config->num_pim_units;
+      unsigned int bank_high = bank_low + m_config->num_pim_units;
+
+      bool can_schedule = true;
+
+      for (unsigned int b = bank_low; b < bank_high; b++) {
+        if (bk[b]->mrq) {
+          can_schedule = false;
+          break;
+        }
+      }
+
+      if (can_schedule) {
+        sched->schedule_pim(true);
+
+        access_num++;
+        pim_num++;
+
+        bool rowhit = true;
+
+        for (unsigned int b = bank_low; b < bank_high; b++) {
+          bk[b]->mrq = req;
+
+          if (bk[b]->curr_row != req->row) {
+            rowhit = false;
+            sched->update_pim_bank_statistics(b, rowhit);
           }
         }
 
-        break;
+        if (rowhit) {
+          hits_num++;
+          hits_pim_num++;
+        }
+      }
+    }
+  }
+
+  else {
+    unsigned i;
+    for (i = 0; i < m_config->nbk; i++) {
+      unsigned b = (i + prio) % m_config->nbk;
+      if (!bk[b]->mrq) {
+        req = sched->schedule(b, bk[b]->curr_row);
+
+        if (req) {
+          prio = (prio + 1) % m_config->nbk;
+          bk[b]->mrq = req;
+          break;
+        }
+      }
+    }
+  }
+
+  if (req) {
+    req->data->set_status(IN_PARTITION_MC_BANK_ARB_QUEUE,
+                          m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+
+    if (m_config->gpgpu_memlatency_stat) {
+      unsigned mrq_latency = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle -
+                             req->timestamp;
+      m_stats->tot_mrq_latency += mrq_latency;
+      m_stats->tot_mrq_num++;
+      req->timestamp = m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle;
+      m_stats->mrq_lat_table[LOGB2(mrq_latency)]++;
+      if (mrq_latency > m_stats->max_mrq_latency) {
+        m_stats->max_mrq_latency = mrq_latency;
       }
     }
   }

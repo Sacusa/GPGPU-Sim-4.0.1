@@ -85,6 +85,7 @@ class mem_fetch {
   unsigned get_ctrl_size() const { return m_ctrl_size; }
   unsigned size() const { return m_data_size + m_ctrl_size; }
   bool is_write() { return m_access.is_write(); }
+  bool is_pim() { return (CACHE_STREAMING == m_inst.cache_op); }
   void set_addr(new_addr_type addr) { m_access.set_addr(addr); }
   new_addr_type get_addr() const { return m_access.get_addr(); }
   unsigned get_access_size() const { return m_access.get_size(); }

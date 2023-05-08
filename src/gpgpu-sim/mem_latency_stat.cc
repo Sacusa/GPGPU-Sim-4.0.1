@@ -85,6 +85,7 @@ memory_stats_t::memory_stats_t(unsigned n_shader,
   total_n_access = 0;
   total_n_reads = 0;
   total_n_writes = 0;
+  total_n_pim = 0;
   max_mrq_latency = 0;
   max_dq_latency = 0;
   max_mf_latency = 0;

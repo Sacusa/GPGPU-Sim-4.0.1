@@ -133,6 +133,7 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   n_rd_L2_A = 0;
   n_req = 0;
   max_mrqs_temp = 0;
+  n_pim = 0;
   bwutil = 0;
   max_mrqs = 0;
   ave_mrqs = 0;
@@ -158,21 +159,23 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     mrqq_Dist = StatCreate("mrqq_length", 1, 64);  // track up to 64 entries
 }
 
-bool dram_t::full(bool is_write) const {
+bool dram_t::full(bool is_write, bool is_pim) const {
   if (m_config->scheduler_type == DRAM_FRFCFS) {
     if (m_config->gpgpu_frfcfs_dram_sched_queue_size == 0) return false;
-    if (m_config->seperate_write_queue_enabled) {
-      if (is_write)
-        return m_frfcfs_scheduler->num_write_pending() >=
-               m_config->gpgpu_frfcfs_dram_write_queue_size;
-      else
-        return m_frfcfs_scheduler->num_pending() >=
-               m_config->gpgpu_frfcfs_dram_sched_queue_size;
-    } else
+
+    if (is_pim) {
+      return m_frfcfs_scheduler->num_pim_pending() >=
+             m_config->gpgpu_frfcfs_dram_pim_queue_size;
+    } else if (is_write && m_config->seperate_write_queue_enabled) {
+      return m_frfcfs_scheduler->num_write_pending() >=
+             m_config->gpgpu_frfcfs_dram_write_queue_size;
+    } else {
       return m_frfcfs_scheduler->num_pending() >=
              m_config->gpgpu_frfcfs_dram_sched_queue_size;
-  } else
+    }
+  } else {
     return mrqq->full();
+  }
 }
 
 unsigned dram_t::que_length() const {
@@ -239,8 +242,6 @@ dram_req_t::dram_req_t(class mem_fetch *mf, unsigned banks,
   addr = mf->get_addr();
   insertion_time = (unsigned)m_gpu->gpu_sim_cycle;
   rw = data->get_is_write() ? WRITE : READ;
-
-  is_pim = (CACHE_STREAMING == data->get_inst().cache_op);
 }
 
 void dram_t::push(class mem_fetch *data) {
@@ -277,7 +278,7 @@ void dram_t::scheduler_fifo() {
         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
     bkn = head_mrqq->bk;
 
-    if (head_mrqq->is_pim) {
+    if (head_mrqq->data->is_pim()) {
       assert(m_config->num_pim_units > 0);
 
       unsigned int bank_low = (bkn / m_config->num_pim_units) * \
@@ -323,7 +324,7 @@ void dram_t::cycle() {
       cmd->dqbytes += m_config->dram_atom_size;
 
       bool is_req_done = false;
-      if (cmd->is_pim) {
+      if (cmd->data->is_pim()) {
         assert(m_config->num_pim_units > 0);
         is_req_done = cmd->dqbytes >= (cmd->nbytes*m_config->num_pim_units);
       } else {
@@ -618,7 +619,7 @@ bool dram_t::issue_col_command(int j) {
 
 #ifdef DRAM_VERIFY
       PRINT_CYCLE = 1;
-      printf("\tRD  Bk:%d Row:%03x Col:%03x \n", j, bk[j]->curr_row,
+      printf("\tRD  Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j, bk[j]->curr_row,
              bk[j]->mrq->col + bk[j]->mrq->txbytes - m_config->dram_atom_size);
 #endif
       // transfer done
@@ -643,16 +644,27 @@ bool dram_t::issue_col_command(int j) {
       bk[j]->WTPc = m_config->tWTP;
       issued = true;
 
-      if (bk[j]->mrq->data->get_access_type() == L2_WRBK_ACC)
-        n_wr_WB++;
-      else
-        n_wr++;
+      if (bk[j]->mrq->data->is_pim()) {
+        n_pim++;
+      } else {
+        if (bk[j]->mrq->data->get_access_type() == L2_WRBK_ACC)
+          n_wr_WB++;
+        else
+          n_wr++;
+      }
       bwutil += m_config->BL / m_config->data_command_freq_ratio;
       bwutil_partial += m_config->BL / m_config->data_command_freq_ratio;
 #ifdef DRAM_VERIFY
       PRINT_CYCLE = 1;
-      printf("\tWR  Bk:%d Row:%03x Col:%03x \n", j, bk[j]->curr_row,
-             bk[j]->mrq->col + bk[j]->mrq->txbytes - m_config->dram_atom_size);
+      if (bk[j]->mrq->data->is_pim()) {
+        printf("\tPIM Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
+               bk[j]->curr_row, bk[j]->mrq->col + bk[j]->mrq->txbytes - \
+               m_config->dram_atom_size);
+      } else {
+        printf("\tWR  Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
+               bk[j]->curr_row, bk[j]->mrq->col + bk[j]->mrq->txbytes - \
+               m_config->dram_atom_size);
+      }
 #endif
       // transfer done
       if (!(bk[j]->mrq->txbytes < bk[j]->mrq->nbytes)) {
@@ -786,13 +798,14 @@ void dram_t::print(FILE *simFile) const {
   printf("n_nop = %llu \n", n_nop);
   printf("Read = %llu \n", n_rd);
   printf("Write = %llu \n", n_wr);
+  printf("PIM = %llu \n", n_pim);
   printf("L2_Alloc = %llu \n", n_rd_L2_A);
   printf("L2_WB = %llu \n", n_wr_WB);
   printf("n_act = %llu \n", n_act);
   printf("n_pre = %llu \n", n_pre);
   printf("n_ref = %llu \n", n_ref);
   printf("n_req = %llu \n", n_req);
-  printf("total_req = %llu \n", n_rd + n_wr + n_rd_L2_A + n_wr_WB);
+  printf("total_req = %llu \n", n_rd + n_wr + n_rd_L2_A + n_wr_WB + n_pim);
 
   printf("\nDual Bus Interface Util: \n");
   printf("issued_total_row = %llu \n", issued_total_row);
@@ -900,7 +913,7 @@ void dram_t::set_dram_power_stats(unsigned &cmd, unsigned &activity,
   act = n_act;
   pre = n_pre;
   rd = n_rd;
-  wr = n_wr;
+  wr = n_wr + n_pim;
   req = n_req;
 }
 

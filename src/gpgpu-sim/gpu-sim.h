@@ -234,6 +234,10 @@ class memory_config {
     sscanf(write_queue_size_opt, "%d:%d:%d",
            &gpgpu_frfcfs_dram_write_queue_size, &write_high_watermark,
            &write_low_watermark);
+
+    sscanf(pim_queue_size_opt, "%d:%d:%d",
+           &gpgpu_frfcfs_dram_pim_queue_size, &pim_high_watermark,
+           &pim_low_watermark);
   }
   void reg_options(class OptionParser *opp);
 
@@ -316,6 +320,11 @@ class memory_config {
   bool simple_dram_model;
 
   unsigned num_pim_units;
+
+  char *pim_queue_size_opt;
+  unsigned gpgpu_frfcfs_dram_pim_queue_size;
+  unsigned pim_high_watermark;
+  unsigned pim_low_watermark;
 
   gpgpu_context *gpgpu_ctx;
 };

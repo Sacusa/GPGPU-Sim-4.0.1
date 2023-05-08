@@ -216,8 +216,10 @@ void memory_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-icnt_flit_size", OPT_UINT32, &icnt_flit_size,
                          "icnt_flit_size", "32");
 
-  option_parser_register(opp, "-gpgpu_dram_num_pim_units", OPT_UINT32,
+  option_parser_register(opp, "-dram_num_pim_units", OPT_UINT32,
                          &num_pim_units, "Number of PIM units", "0");
+  option_parser_register(opp, "-dram_pim_queue_size", OPT_CSTR,
+                         &pim_queue_size_opt, "PIM_Queue_Size", "32:28:16");
 
   m_address_mapping.addrdec_setoption(opp);
 }

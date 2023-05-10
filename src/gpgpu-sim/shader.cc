@@ -1226,6 +1226,8 @@ void scheduler_unit::cycle() {
                 issued_inst = true;
                 warp_inst_issued = true;
                 previous_issued_inst_exec_type = exec_unit_type_t::MEM;
+
+                warp(warp_id).inc_n_mem_ops_issued();
               }
             } else {
               bool sp_pipe_avail =
@@ -3667,19 +3669,28 @@ bool shader_core_ctx::warp_waiting_at_barrier(unsigned warp_id) const {
 
 bool shader_core_ctx::warp_waiting_at_mem_barrier(unsigned warp_id) {
   if (!m_warp[warp_id]->get_membar()) return false;
-  if (!m_scoreboard->pendingWrites(warp_id)) {
-    m_warp[warp_id]->clear_membar();
-    if (m_gpu->get_config().flush_l1()) {
-      // Mahmoud fixed this on Nov 2019
-      // Invalidate L1 cache
-      // Based on Nvidia Doc, at MEM barrier, we have to
-      //(1) wait for all pending writes till they are acked
-      //(2) invalidate L1 cache to ensure coherence and avoid reading stall data
-      cache_invalidate();
-      // TO DO: you need to stall the SM for 5k cycles.
+
+  if (m_config->gpgpu_pim_fence) {
+    if (m_warp[warp_id]->get_n_mem_ops_issued() == 0) {
+      m_warp[warp_id]->clear_membar();
+      return false;
     }
-    return false;
+  } else {
+    if (!m_scoreboard->pendingWrites(warp_id)) {
+      m_warp[warp_id]->clear_membar();
+      if (m_gpu->get_config().flush_l1()) {
+        // Mahmoud fixed this on Nov 2019
+        // Invalidate L1 cache
+        // Based on Nvidia Doc, at MEM barrier, we have to
+        //(1) wait for all pending writes till they are acked
+        //(2) invalidate L1 cache to ensure coherence and avoid reading stall data
+        cache_invalidate();
+        // TO DO: you need to stall the SM for 5k cycles.
+      }
+      return false;
+    }
   }
+
   return true;
 }
 
@@ -3944,6 +3955,13 @@ void opndcoll_rfu_t::dispatch_ready_cu() {
     dispatch_unit_t &du = m_dispatch_units[p];
     collector_unit_t *cu = du.find_ready();
     if (cu) {
+      if (cu->get_op() == MEMORY_BARRIER_OP &&
+          m_shader->get_config()->gpgpu_pim_fence &&
+          m_shader->m_warp[cu->get_warp_id()]->get_membar() &&
+          (m_shader->m_warp[cu->get_warp_id()]->get_n_mem_ops_issued() > 1)) {
+        continue;
+      }
+
       for (unsigned i = 0; i < (cu->get_num_operands() - cu->get_num_regs());
            i++) {
         if (m_shader->get_config()->gpgpu_clock_gated_reg_file) {
@@ -3964,6 +3982,15 @@ void opndcoll_rfu_t::dispatch_ready_cu() {
               m_shader->get_config()->warp_size);  // cu->get_active_count());
         }
       }
+
+      op_type op = cu->get_op();
+      if ((op == LOAD_OP) || (op == STORE_OP) ||
+          (op == MEMORY_BARRIER_OP) ||
+          (op == TENSOR_CORE_LOAD_OP) ||
+          (op == TENSOR_CORE_STORE_OP)) {
+        m_shader->m_warp[cu->get_warp_id()]->dec_n_mem_ops_issued();
+      }
+
       cu->dispatch();
     }
   }

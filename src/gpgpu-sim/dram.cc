@@ -355,7 +355,7 @@ void dram_t::cycle() {
 
       bool is_req_done = false;
       if (cmd->data->is_pim()) {
-        is_req_done = cmd->dqbytes >= (cmd->nbytes*m_config->num_pim_units);
+        is_req_done = cmd->dqbytes >= (cmd->nbytes * m_config->num_pim_units);
       } else {
         is_req_done = cmd->dqbytes >= cmd->nbytes;
       }
@@ -695,8 +695,7 @@ bool dram_t::issue_col_command(int j) {
       PRINT_CYCLE = 1;
       if (bk[j]->mrq->data->is_pim()) {
         printf("\tPIM Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
-               bk[j]->curr_row, bk[j]->mrq->col + bk[j]->mrq->txbytes - \
-               m_config->dram_atom_size);
+               bk[j]->curr_row, bk[j]->mrq->col);
       } else {
         printf("\tWR  Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
                bk[j]->curr_row, bk[j]->mrq->col + bk[j]->mrq->txbytes - \

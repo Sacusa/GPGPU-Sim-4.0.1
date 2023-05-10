@@ -121,6 +121,8 @@ class shd_warp_t {
     // Jin: cdp support
     m_cdp_latency = 0;
     m_cdp_dummy = false;
+
+    n_mem_ops_issued = 0;
   }
   void init(address_type start_pc, unsigned cta_id, unsigned wid,
             const std::bitset<MAX_WARP_SIZE> &active,
@@ -138,6 +140,8 @@ class shd_warp_t {
     // Jin: cdp support
     m_cdp_latency = 0;
     m_cdp_dummy = false;
+
+    n_mem_ops_issued = 0;
   }
 
   bool functional_done() const;
@@ -238,6 +242,10 @@ class shd_warp_t {
   unsigned get_dynamic_warp_id() const { return m_dynamic_warp_id; }
   unsigned get_warp_id() const { return m_warp_id; }
 
+  void inc_n_mem_ops_issued() { n_mem_ops_issued++; }
+  void dec_n_mem_ops_issued() { n_mem_ops_issued--; }
+  unsigned get_n_mem_ops_issued() { return n_mem_ops_issued; }
+
   class shader_core_ctx * get_shader() { return m_shader; }
  private:
   static const unsigned IBUFFER_SIZE = 2;
@@ -279,6 +287,8 @@ class shd_warp_t {
   unsigned m_inst_in_pipeline;
 
   // Jin: cdp support
+
+  unsigned n_mem_ops_issued;
  public:
   unsigned int m_cdp_latency;
   bool m_cdp_dummy;
@@ -878,6 +888,7 @@ class opndcoll_rfu_t {  // operand collector based register file unit
     }
     unsigned get_sp_op() const { return m_warp->sp_op; }
     unsigned get_id() const { return m_cuid; }  // returns CU hw id
+    op_type get_op() const { return m_warp->op; }
 
     // modifiers
     void init(unsigned n, unsigned num_banks, unsigned log2_warp_size,
@@ -1599,6 +1610,8 @@ class shader_core_config : public core_config {
   char *specialized_unit_string[SPECIALIZED_UNIT_NUM];
   mutable std::vector<specialized_unit_params> m_specialized_unit;
   unsigned m_specialized_unit_num;
+
+  bool gpgpu_pim_fence;
 };
 
 struct shader_core_stats_pod {
@@ -2132,6 +2145,7 @@ class shader_core_ctx : public core_t {
   friend class scheduler_unit;  // this is needed to use private issue warp.
   friend class TwoLevelScheduler;
   friend class LooseRoundRobbinScheduler;
+  friend class opndcoll_rfu_t;
   virtual void issue_warp(register_set &warp, const warp_inst_t *pI,
                   const active_mask_t &active_mask, unsigned warp_id,
                   unsigned sch_id);

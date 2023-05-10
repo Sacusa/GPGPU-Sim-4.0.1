@@ -552,6 +552,9 @@ void shader_core_config::reg_options(class OptionParser *opp) {
                            "OC_SPEC>:<OC_EX_SPEC>,<NAME>}",
                            "0,4,4,4,4,BRA");
   }
+
+  option_parser_register(opp, "-gpgpu_pim_fence", OPT_BOOL, &gpgpu_pim_fence,
+      "Enable percolating fence for PIM", "0");
 }
 
 void gpgpu_sim_config::reg_options(option_parser_t opp) {

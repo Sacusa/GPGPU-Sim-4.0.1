@@ -287,15 +287,11 @@ void dram_t::scheduler_fifo() {
     bkn = head_mrqq->bk;
 
     if (head_mrqq->data->is_pim()) {
-      assert(m_config->num_pim_units > 0);
-
-      unsigned int bank_low = (bkn / m_config->num_pim_units) * \
-                              m_config->num_pim_units;
-      unsigned int bank_high = bank_low + m_config->num_pim_units;
+      set_pim_mode();
 
       bool can_schedule = true;
 
-      for (unsigned int b = bank_low; b < bank_high; b++) {
+      for (unsigned int b = 0; b < m_config->nbk; b++) {
         if (bk[b]->mrq) {
           can_schedule = false;
           break;
@@ -304,7 +300,7 @@ void dram_t::scheduler_fifo() {
 
       if (can_schedule) {
         head_mrqq = mrqq->pop();
-        for (unsigned int b = bank_low; b < bank_high; b++) {
+        for (unsigned int b = 0; b < m_config->nbk; b++) {
           bk[b]->mrq = head_mrqq;
         }
 
@@ -320,6 +316,8 @@ void dram_t::scheduler_fifo() {
       mode = PIM_MODE;
     }
     else {
+      set_non_pim_mode();
+
       if (!bk[bkn]->mrq) {
         bk[bkn]->mrq = mrqq->pop();
 
@@ -353,14 +351,7 @@ void dram_t::cycle() {
 #endif
       cmd->dqbytes += m_config->dram_atom_size;
 
-      bool is_req_done = false;
-      if (cmd->data->is_pim()) {
-        is_req_done = cmd->dqbytes >= (cmd->nbytes * m_config->num_pim_units);
-      } else {
-        is_req_done = cmd->dqbytes >= cmd->nbytes;
-      }
-
-      if (is_req_done) {
+      if (cmd->dqbytes >= cmd->nbytes) {
         if (cmd->data->is_pim()) {
           last_pim_finish_timestamp = m_gpu->gpu_sim_cycle +
                                       m_gpu->gpu_tot_sim_cycle;
@@ -478,43 +469,50 @@ void dram_t::cycle() {
   bool issued_col_cmd = false;
   bool issued_row_cmd = false;
 
-  if (m_config->dual_bus_interface) {
-    // dual bus interface
-    // issue one row command and one column command
-    for (unsigned i = 0; i < m_config->nbk; i++) {
-      unsigned j = (i + prio) % m_config->nbk;
-      issued_col_cmd = issue_col_command(j);
-      if (issued_col_cmd) break;
-    }
-    for (unsigned i = 0; i < m_config->nbk; i++) {
-      unsigned j = (i + prio) % m_config->nbk;
-      issued_row_cmd = issue_row_command(j);
-      if (issued_row_cmd) break;
-    }
-    for (unsigned i = 0; i < m_config->nbk; i++) {
-      unsigned j = (i + prio) % m_config->nbk;
-      if (!bk[j]->mrq) {
-        if (!CCDc && !RRDc && !RTWc && !WTRc && !bk[j]->RCDc && !bk[j]->RASc &&
-            !bk[j]->RCc && !bk[j]->RPc && !bk[j]->RCDWRc)
-          k--;
-        bk[j]->n_idle++;
+  if (in_pim_mode) {
+    issued_col_cmd = issue_pim_col_command();
+    issued_row_cmd = issue_pim_row_command();
+  }
+
+  else {
+    if (m_config->dual_bus_interface) {
+      // dual bus interface
+      // issue one row command and one column command
+      for (unsigned i = 0; i < m_config->nbk; i++) {
+        unsigned j = (i + prio) % m_config->nbk;
+        issued_col_cmd = issue_col_command(j);
+        if (issued_col_cmd) break;
       }
-    }
-  } else {
-    // single bus interface
-    // issue only one row/column command
-    for (unsigned i = 0; i < m_config->nbk; i++) {
-      unsigned j = (i + prio) % m_config->nbk;
-      if (!issued_col_cmd) issued_col_cmd = issue_col_command(j);
-
-      if (!issued_col_cmd && !issued_row_cmd)
+      for (unsigned i = 0; i < m_config->nbk; i++) {
+        unsigned j = (i + prio) % m_config->nbk;
         issued_row_cmd = issue_row_command(j);
+        if (issued_row_cmd) break;
+      }
+      for (unsigned i = 0; i < m_config->nbk; i++) {
+        unsigned j = (i + prio) % m_config->nbk;
+        if (!bk[j]->mrq) {
+          if (!CCDc && !RRDc && !RTWc && !WTRc && !bk[j]->RCDc &&
+              !bk[j]->RASc && !bk[j]->RCc && !bk[j]->RPc && !bk[j]->RCDWRc)
+            k--;
+          bk[j]->n_idle++;
+        }
+      }
+    } else {
+      // single bus interface
+      // issue only one row/column command
+      for (unsigned i = 0; i < m_config->nbk; i++) {
+        unsigned j = (i + prio) % m_config->nbk;
+        if (!issued_col_cmd) issued_col_cmd = issue_col_command(j);
 
-      if (!bk[j]->mrq) {
-        if (!CCDc && !RRDc && !RTWc && !WTRc && !bk[j]->RCDc && !bk[j]->RASc &&
-            !bk[j]->RCc && !bk[j]->RPc && !bk[j]->RCDWRc)
-          k--;
-        bk[j]->n_idle++;
+        if (!issued_col_cmd && !issued_row_cmd)
+          issued_row_cmd = issue_row_command(j);
+
+        if (!bk[j]->mrq) {
+          if (!CCDc && !RRDc && !RTWc && !WTRc && !bk[j]->RCDc &&
+              !bk[j]->RASc && !bk[j]->RCc && !bk[j]->RPc && !bk[j]->RCDWRc)
+            k--;
+          bk[j]->n_idle++;
+        }
       }
     }
   }
@@ -681,26 +679,18 @@ bool dram_t::issue_col_command(int j) {
       bk[j]->WTPc = m_config->tWTP;
       issued = true;
 
-      if (bk[j]->mrq->data->is_pim()) {
-        n_pim++;
-      } else {
-        if (bk[j]->mrq->data->get_access_type() == L2_WRBK_ACC)
-          n_wr_WB++;
-        else
-          n_wr++;
-      }
+      if (bk[j]->mrq->data->get_access_type() == L2_WRBK_ACC)
+        n_wr_WB++;
+      else
+        n_wr++;
+
       bwutil += m_config->BL / m_config->data_command_freq_ratio;
       bwutil_partial += m_config->BL / m_config->data_command_freq_ratio;
 #ifdef DRAM_VERIFY
       PRINT_CYCLE = 1;
-      if (bk[j]->mrq->data->is_pim()) {
-        printf("\tPIM Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
-               bk[j]->curr_row, bk[j]->mrq->col);
-      } else {
-        printf("\tWR  Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
-               bk[j]->curr_row, bk[j]->mrq->col + bk[j]->mrq->txbytes - \
-               m_config->dram_atom_size);
-      }
+      printf("\tWR  Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
+             bk[j]->curr_row, bk[j]->mrq->col + bk[j]->mrq->txbytes - \
+             m_config->dram_atom_size);
 #endif
       // transfer done
       if (!(bk[j]->mrq->txbytes < bk[j]->mrq->nbytes)) {
@@ -724,8 +714,8 @@ bool dram_t::issue_row_command(int j) {
         !bk[j]->RCc) {  //
 #ifdef DRAM_VERIFY
       PRINT_CYCLE = 1;
-      printf("\tACT BK:%d NewRow:%03x From:%03x \n", j, bk[j]->mrq->row,
-             bk[j]->curr_row);
+      printf("\tACT Ch:%d Bk:%d NewRow:%03x From:%03x \n", id, j,
+          bk[j]->mrq->row, bk[j]->curr_row);
 #endif
       // activate the row with current memory request
       bk[j]->curr_row = bk[j]->mrq->row;
@@ -747,6 +737,10 @@ bool dram_t::issue_row_command(int j) {
             (bk[j]->state == BANK_ACTIVE) &&
             (!bk[j]->RASc && !bk[j]->WTPc && !bk[j]->RTPc &&
              !bkgrp[grp]->RTPLc)) {
+#ifdef DRAM_VERIFY
+      PRINT_CYCLE = 1;
+      printf("\tPRE Ch:%d Bk:%d Row:%03x \n", id, j, bk[j]->curr_row);
+#endif
       // make the bank idle again
       bk[j]->state = BANK_IDLE;
       bk[j]->RPc = m_config->tRP;
@@ -754,13 +748,142 @@ bool dram_t::issue_row_command(int j) {
       issued = true;
       n_pre++;
       n_pre_partial++;
-#ifdef DRAM_VERIFY
-      PRINT_CYCLE = 1;
-      printf("\tPRE BK:%d Row:%03x \n", j, bk[j]->curr_row);
-#endif
     }
   }
   return issued;
+}
+
+bool dram_t::issue_pim_col_command() {
+  bool can_issue = true;
+
+  for (int j = 0; j < m_config->nbk; j++) {
+    unsigned grp = get_bankgrp_number(j);
+
+    can_issue = can_issue && bk[j]->mrq &&
+      !CCDc && !bk[j]->RCDWRc && !(bkgrp[grp]->CCDLc) &&
+      (bk[j]->curr_row == bk[j]->mrq->row) && (bk[j]->mrq->rw == WRITE) &&
+      (RTWc == 0) && (bk[j]->state == BANK_ACTIVE) && !rwq->full();
+    
+    if (!can_issue) { break; }
+  }
+
+  if (can_issue) {
+    if (rw == READ) {
+      rw = WRITE;
+      rwq->set_min_length(m_config->WL);
+    }
+    rwq->push(bk[0]->mrq);
+
+    for (unsigned j = 0; j < m_config->nbk; j++) {
+      unsigned grp = get_bankgrp_number(j);
+
+      bk[j]->mrq->data->set_status(
+          IN_PARTITION_DRAM, m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+
+      bk[j]->mrq->txbytes += m_config->dram_atom_size;
+      bkgrp[grp]->CCDLc = m_config->tCCDL;
+      bk[j]->WTPc = m_config->tWTP;
+
+      // TODO: should the following two statistics be disabled?
+      bwutil += m_config->BL / m_config->data_command_freq_ratio;
+      bwutil_partial += m_config->BL / m_config->data_command_freq_ratio;
+      
+#ifdef DRAM_VERIFY
+      PRINT_CYCLE = 1;
+      printf("\tPIM Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
+             bk[j]->curr_row, bk[j]->mrq->col);
+#endif
+
+      bk[j]->mrq = NULL;
+    }
+
+    CCDc = m_config->tCCD;
+    WTRc = m_config->tWTR;
+
+    n_pim++;
+  }
+
+  return can_issue;
+}
+
+bool dram_t::issue_pim_row_command() {
+  bool can_issue = false;
+
+  std::vector<unsigned> precharge_banks;
+  std::vector<unsigned> activate_banks;
+
+  for (unsigned j = 0; j < m_config->nbk; j++) {
+    if (bk[j]->mrq) {
+      if ((bk[j]->state == BANK_ACTIVE) &&
+          (bk[j]->curr_row != bk[j]->mrq->row)) {
+        precharge_banks.push_back(j);
+      }
+      else if (bk[j]->state == BANK_IDLE) {
+        activate_banks.push_back(j);
+      }
+    }
+  }
+
+  if (precharge_banks.size() > 0) {
+    can_issue = true;
+
+    for (unsigned j : precharge_banks) {
+      unsigned grp = get_bankgrp_number(j);
+
+      can_issue = can_issue && !bk[j]->RASc && !bk[j]->WTPc && !bk[j]->RTPc &&
+           !bkgrp[grp]->RTPLc;
+      
+      if (!can_issue) { break; }
+    }
+
+    if (can_issue) {
+      for (unsigned j : precharge_banks) {
+#ifdef DRAM_VERIFY
+        PRINT_CYCLE = 1;
+        printf("\tPRE Ch:%d Bk:%d Row:%03x \n", id, j, bk[j]->curr_row);
+#endif
+        bk[j]->state = BANK_IDLE;
+        bk[j]->RPc = m_config->tRP;
+      }
+
+      prio = 0;
+      n_pre++;
+      n_pre_partial++;
+    }
+  }
+
+  else if (activate_banks.size() > 0) {
+    can_issue = true;
+
+    for (unsigned j : activate_banks) {
+      can_issue = can_issue && !RRDc && !bk[j]->RPc && !bk[j]->RCc;
+      
+      if (!can_issue) { break; }
+    }
+
+    if (can_issue) {
+      for (unsigned j : activate_banks) {
+#ifdef DRAM_VERIFY
+        PRINT_CYCLE = 1;
+        printf("\tACT Ch:%d Bk:%d NewRow:%03x From:%03x \n", id, j,
+            bk[j]->mrq->row, bk[j]->curr_row);
+#endif
+        bk[j]->curr_row = bk[j]->mrq->row;
+        bk[j]->state = BANK_ACTIVE;
+        bk[j]->RCDc = m_config->tRCD;
+        bk[j]->RCDWRc = m_config->tRCDWR;
+        bk[j]->RASc = m_config->tRAS;
+        bk[j]->RCc = m_config->tRC;
+      }
+
+      RRDc = m_config->tRRD;
+      prio = 0;
+      n_act_partial++;
+      n_act++;
+    }
+  }
+
+  return can_issue;
 }
 
 // if mrq is being serviced by dram, gets popped after CL latency fulfilled

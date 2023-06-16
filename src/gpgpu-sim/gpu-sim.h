@@ -319,8 +319,6 @@ class memory_config {
   bool m_perf_sim_memcpy;
   bool simple_dram_model;
 
-  unsigned num_pim_units;
-
   char *pim_queue_size_opt;
   unsigned gpgpu_frfcfs_dram_pim_queue_size;
   unsigned pim_high_watermark;

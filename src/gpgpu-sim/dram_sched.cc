@@ -69,17 +69,15 @@ frfcfs_scheduler::frfcfs_scheduler(const memory_config *config, dram_t *dm,
     }
   }
 
-  if (m_config->num_pim_units > 0) {
-    m_pim_queue = new std::list<dram_req_t *>;
-    m_pim_queue->clear();
-  }
+  m_pim_queue = new std::list<dram_req_t *>;
+  m_pim_queue->clear();
 }
 
 void frfcfs_scheduler::add_req(dram_req_t *req) {
   if (req->data->is_pim()) {
     assert(m_num_pim_pending < m_config->gpgpu_frfcfs_dram_pim_queue_size);
     m_num_pim_pending++;
-    m_pim_queue->push_front(req);
+    m_pim_queue->push_back(req);
   } else if (m_config->seperate_write_queue_enabled && req->data->is_write()) {
     assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
     m_num_write_pending++;
@@ -245,26 +243,53 @@ dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   return req;
 }
 
-dram_req_t *frfcfs_scheduler::schedule_pim(bool pop_request=false) {
-  if (m_num_pim_pending == 0) { return NULL; }
+void frfcfs_scheduler::schedule_pim() {
+  if (m_num_pim_pending == 0) { return; }
 
-  dram_req_t *pim_req = m_pim_queue->back();
+  dram_req_t *req = m_pim_queue->front();
 
-  if (pop_request) {
-    m_pim_queue->pop_back();
+  bool can_schedule = true;
+
+  for (unsigned int b = 0; b < m_config->nbk; b++) {
+    if (m_dram->bk[b]->mrq) {
+      can_schedule = false;
+      break;
+    }
+  }
+
+  if (can_schedule) {
+    m_pim_queue->pop_front();
     m_num_pim_pending--;
+
+    m_dram->access_num++;
+    m_dram->pim_num++;
+
+    bool rowhit = true;
+
+    for (unsigned int b = 0; b < m_config->nbk; b++) {
+      m_dram->bk[b]->mrq = req;
+
+      bool bank_rowhit = m_dram->bk[b]->curr_row == req->row;
+      rowhit = rowhit && bank_rowhit;
+
+      if (!bank_rowhit) {
+        data_collection(b);
+      }
+
+      m_stats->concurrent_row_access[m_dram->id][b]++;
+      m_stats->row_access[m_dram->id][b]++;
+    }
+
+    if (rowhit) {
+      m_dram->hits_num++;
+      m_dram->hits_pim_num++;
+    }
+
+    if (m_dram->first_pim_issue_timestamp == 0) {
+      m_dram->first_pim_issue_timestamp = m_dram->m_gpu->gpu_sim_cycle +
+                                          m_dram->m_gpu->gpu_tot_sim_cycle;
+    }
   }
-
-  return pim_req;
-}
-
-void frfcfs_scheduler::update_pim_bank_statistics(unsigned bank, bool rowhit) {
-  if (!rowhit) {
-    data_collection(bank);
-  }
-
-  m_stats->concurrent_row_access[m_dram->id][bank]++;
-  m_stats->row_access[m_dram->id][bank]++;
 }
 
 void frfcfs_scheduler::print(FILE *fp) {
@@ -301,56 +326,13 @@ void dram_t::scheduler_frfcfs() {
   sched->update_mode();
 
   if (mode == PIM_MODE) {
-    assert(m_config->num_pim_units > 0);
-
-    dram_req_t *req = sched->schedule_pim();
-
-    if (req) {
-      unsigned pim_group_id = req->bk / m_config->num_pim_units;
-
-      unsigned int bank_low = pim_group_id * m_config->num_pim_units;
-      unsigned int bank_high = bank_low + m_config->num_pim_units;
-
-      bool can_schedule = true;
-
-      for (unsigned int b = bank_low; b < bank_high; b++) {
-        if (bk[b]->mrq) {
-          can_schedule = false;
-          break;
-        }
-      }
-
-      if (can_schedule) {
-        sched->schedule_pim(true);
-
-        access_num++;
-        pim_num++;
-
-        bool rowhit = true;
-
-        for (unsigned int b = bank_low; b < bank_high; b++) {
-          bk[b]->mrq = req;
-
-          if (bk[b]->curr_row != req->row) {
-            rowhit = false;
-            sched->update_pim_bank_statistics(b, rowhit);
-          }
-        }
-
-        if (rowhit) {
-          hits_num++;
-          hits_pim_num++;
-        }
-
-        if (first_pim_issue_timestamp == 0) {
-          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
-                                      m_gpu->gpu_tot_sim_cycle;
-        }
-      }
-    }
+    set_pim_mode();
+    sched->schedule_pim();
   }
 
   else {
+    set_non_pim_mode();
+
     unsigned i;
     for (i = 0; i < m_config->nbk; i++) {
       unsigned b = (i + prio) % m_config->nbk;

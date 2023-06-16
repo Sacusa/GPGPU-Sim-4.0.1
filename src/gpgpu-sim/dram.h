@@ -47,7 +47,7 @@
 #define BANK_IDLE 'I'
 #define BANK_ACTIVE 'A'
 
-#define DRAM_VERIFY
+//#define DRAM_VERIFY
 
 enum memory_mode { READ_MODE = 0, WRITE_MODE, PIM_MODE };
 
@@ -137,6 +137,9 @@ class dram_t {
   unsigned int id;
   enum memory_mode mode;
 
+  void set_pim_mode() { in_pim_mode = true; }
+  void set_non_pim_mode() { in_pim_mode = false; }
+
   // Power Model
   void set_dram_power_stats(unsigned &cmd, unsigned &activity, unsigned &nop,
                             unsigned &act, unsigned &pre, unsigned &rd,
@@ -150,6 +153,8 @@ class dram_t {
   bank_t **bk;
   unsigned int prio;
 
+  unsigned in_pim_mode = false;
+
   unsigned get_bankgrp_number(unsigned i);
 
   void scheduler_fifo();
@@ -157,6 +162,10 @@ class dram_t {
 
   bool issue_col_command(int j);
   bool issue_row_command(int j);
+
+  // PIM command issue
+  bool issue_pim_col_command();
+  bool issue_pim_row_command();
 
   unsigned int RRDc;
   unsigned int CCDc;

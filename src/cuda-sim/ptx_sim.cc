@@ -281,14 +281,16 @@ unsigned ptx_thread_info::get_builtin(int builtin_id, unsigned dim_mod) {
       abort();
       break;
     case NWARPID_REG:
-      feature_not_implemented("%nwarpid");
-      return 0;
+      //feature_not_implemented("%nwarpid");
+      //return 0;
+      return m_hw_ctaid;
     case PM_REG:
       feature_not_implemented("%pm");
       return 0;
     case SMID_REG:
-      feature_not_implemented("%smid");
-      return 0;
+      //feature_not_implemented("%smid");
+      //return 0;
+      return m_hw_sid;
     case TID_REG:
       assert(dim_mod < 3);
       if (dim_mod == 0) return m_tid.x;

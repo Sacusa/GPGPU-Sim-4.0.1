@@ -44,8 +44,7 @@ class frfcfs_scheduler {
   void data_collection(unsigned bank);
   void update_mode();
   dram_req_t *schedule(unsigned bank, unsigned curr_row);
-  dram_req_t *schedule_pim(bool pop_request);
-  void update_pim_bank_statistics(unsigned bank, bool rowhit);
+  void schedule_pim();
   void print(FILE *fp);
   unsigned num_pending() const { return m_num_pending; }
   unsigned num_write_pending() const { return m_num_write_pending; }

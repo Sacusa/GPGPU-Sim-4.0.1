@@ -326,13 +326,10 @@ void dram_t::scheduler_frfcfs() {
   sched->update_mode();
 
   if (mode == PIM_MODE) {
-    set_pim_mode();
     sched->schedule_pim();
   }
 
   else {
-    set_non_pim_mode();
-
     unsigned i;
     for (i = 0; i < m_config->nbk; i++) {
       unsigned b = (i + prio) % m_config->nbk;

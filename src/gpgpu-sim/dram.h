@@ -137,9 +137,6 @@ class dram_t {
   unsigned int id;
   enum memory_mode mode;
 
-  void set_pim_mode() { in_pim_mode = true; }
-  void set_non_pim_mode() { in_pim_mode = false; }
-
   // Power Model
   void set_dram_power_stats(unsigned &cmd, unsigned &activity, unsigned &nop,
                             unsigned &act, unsigned &pre, unsigned &rd,
@@ -152,8 +149,6 @@ class dram_t {
 
   bank_t **bk;
   unsigned int prio;
-
-  unsigned in_pim_mode = false;
 
   unsigned get_bankgrp_number(unsigned i);
 

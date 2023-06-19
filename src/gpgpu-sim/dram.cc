@@ -287,8 +287,6 @@ void dram_t::scheduler_fifo() {
     bkn = head_mrqq->bk;
 
     if (head_mrqq->data->is_pim()) {
-      set_pim_mode();
-
       bool can_schedule = true;
 
       for (unsigned int b = 0; b < m_config->nbk; b++) {
@@ -316,8 +314,6 @@ void dram_t::scheduler_fifo() {
       mode = PIM_MODE;
     }
     else {
-      set_non_pim_mode();
-
       if (!bk[bkn]->mrq) {
         bk[bkn]->mrq = mrqq->pop();
 
@@ -468,6 +464,15 @@ void dram_t::cycle() {
 
   bool issued_col_cmd = false;
   bool issued_row_cmd = false;
+
+  bool in_pim_mode = false;
+
+  for (unsigned b = 0; b < m_config->nbk; b++) {
+    if (bk[b]->mrq && bk[b]->mrq->data->is_pim()) {
+      in_pim_mode = true;
+      break;
+    }
+  }
 
   if (in_pim_mode) {
     issued_col_cmd = issue_pim_col_command();

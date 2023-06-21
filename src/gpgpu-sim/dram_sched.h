@@ -26,8 +26,8 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef dram_sched_h_INCLUDED
-#define dram_sched_h_INCLUDED
+#ifndef __DRAM_SCHED_H__
+#define __DRAM_SCHED_H__
 
 #include <list>
 #include <map>
@@ -36,21 +36,23 @@
 #include "gpu-sim.h"
 #include "shader.h"
 
-class frfcfs_scheduler {
+class dram_scheduler {
  public:
-  frfcfs_scheduler(const memory_config *config, dram_t *dm,
+  dram_scheduler(const memory_config *config, dram_t *dm,
                    memory_stats_t *stats);
   void add_req(dram_req_t *req);
   void data_collection(unsigned bank);
-  void update_mode();
-  dram_req_t *schedule(unsigned bank, unsigned curr_row);
-  void schedule_pim();
+
+  virtual void update_mode();
+  virtual dram_req_t *schedule(unsigned bank, unsigned curr_row);
+  virtual dram_req_t *schedule_pim();
+
   void print(FILE *fp);
   unsigned num_pending() const { return m_num_pending; }
   unsigned num_write_pending() const { return m_num_write_pending; }
   unsigned num_pim_pending() const { return m_num_pim_pending; }
 
- private:
+ protected:
   const memory_config *m_config;
   dram_t *m_dram;
   unsigned m_num_pending;

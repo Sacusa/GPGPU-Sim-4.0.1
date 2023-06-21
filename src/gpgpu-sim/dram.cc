@@ -29,6 +29,9 @@
 
 #include "dram.h"
 #include "dram_sched.h"
+#include "dram_sched_gi.h"
+#include "dram_sched_i1.h"
+#include "dram_sched_i2.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -51,6 +54,8 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   m_stats = stats;
   m_config = config;
   m_gpu = gpu;
+
+  m_dram_cycle = 0;
 
   // rowblp
   access_num = 0;
@@ -119,9 +124,28 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
       m_config->gpgpu_dram_return_queue_size == 0
           ? 1024
           : m_config->gpgpu_dram_return_queue_size);
-  m_frfcfs_scheduler = NULL;
-  if (m_config->scheduler_type == DRAM_FRFCFS)
-    m_frfcfs_scheduler = new frfcfs_scheduler(m_config, this, stats);
+
+  switch (m_config->scheduler_type) {
+    case DRAM_FIFO:
+      m_scheduler = NULL;
+      break;
+    case DRAM_FRFCFS:
+      m_scheduler = new dram_scheduler(m_config, this, stats);
+      break;
+    case DRAM_GI:
+      m_scheduler = new gi_scheduler(m_config, this, stats);
+      break;
+    case DRAM_I1:
+      m_scheduler = new i1_scheduler(m_config, this, stats);
+      break;
+    case DRAM_I2:
+      m_scheduler = new i2_scheduler(m_config, this, stats);
+      break;
+    default:
+      printf("Error: Unknown DRAM scheduler type\n");
+      assert(0);
+  }
+
   n_cmd = 0;
   n_activity = 0;
   n_nop = 0;
@@ -168,30 +192,30 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
 }
 
 bool dram_t::full(bool is_write, bool is_pim) const {
-  if (m_config->scheduler_type == DRAM_FRFCFS) {
+  if (m_config->scheduler_type == DRAM_FIFO) {
+    return mrqq->full();
+  } else {
     if (m_config->gpgpu_frfcfs_dram_sched_queue_size == 0) return false;
 
     if (is_pim) {
-      return m_frfcfs_scheduler->num_pim_pending() >=
+      return m_scheduler->num_pim_pending() >=
              m_config->gpgpu_frfcfs_dram_pim_queue_size;
     } else if (is_write && m_config->seperate_write_queue_enabled) {
-      return m_frfcfs_scheduler->num_write_pending() >=
+      return m_scheduler->num_write_pending() >=
              m_config->gpgpu_frfcfs_dram_write_queue_size;
     } else {
-      return m_frfcfs_scheduler->num_pending() >=
+      return m_scheduler->num_pending() >=
              m_config->gpgpu_frfcfs_dram_sched_queue_size;
     }
-  } else {
-    return mrqq->full();
   }
 }
 
 unsigned dram_t::que_length() const {
   unsigned nreqs = 0;
-  if (m_config->scheduler_type == DRAM_FRFCFS) {
-    nreqs = m_frfcfs_scheduler->num_pending();
-  } else {
+  if (m_config->scheduler_type == DRAM_FIFO) {
     nreqs = mrqq->get_length();
+  } else {
+    nreqs = m_scheduler->num_pending();
   }
   return nreqs;
 }
@@ -267,12 +291,12 @@ void dram_t::push(class mem_fetch *data) {
   // stats...
   n_req += 1;
   n_req_partial += 1;
-  if (m_config->scheduler_type == DRAM_FRFCFS) {
-    unsigned nreqs = m_frfcfs_scheduler->num_pending();
-    if (nreqs > max_mrqs_temp) max_mrqs_temp = nreqs;
-  } else {
+  if (m_config->scheduler_type == DRAM_FIFO) {
     max_mrqs_temp = (max_mrqs_temp > mrqq->get_length()) ? max_mrqs_temp
                                                          : mrqq->get_length();
+  } else {
+    unsigned nreqs = m_scheduler->num_pending();
+    if (nreqs > max_mrqs_temp) max_mrqs_temp = nreqs;
   }
   m_stats->memlatstat_dram_access(data);
 }
@@ -382,26 +406,22 @@ void dram_t::cycle() {
     case DRAM_FIFO:
       scheduler_fifo();
       break;
-    case DRAM_FRFCFS:
-      scheduler_frfcfs();
-      break;
     default:
-      printf("Error: Unknown DRAM scheduler type\n");
-      assert(0);
+      scheduler_frfcfs();
   }
-  if (m_config->scheduler_type == DRAM_FRFCFS) {
-    unsigned nreqs = m_frfcfs_scheduler->num_pending();
-    if (nreqs > max_mrqs) {
-      max_mrqs = nreqs;
-    }
-    ave_mrqs += nreqs;
-    ave_mrqs_partial += nreqs;
-  } else {
+  if (m_config->scheduler_type == DRAM_FIFO) {
     if (mrqq->get_length() > max_mrqs) {
       max_mrqs = mrqq->get_length();
     }
     ave_mrqs += mrqq->get_length();
     ave_mrqs_partial += mrqq->get_length();
+  } else {
+    unsigned nreqs = m_scheduler->num_pending();
+    if (nreqs > max_mrqs) {
+      max_mrqs = nreqs;
+    }
+    ave_mrqs += nreqs;
+    ave_mrqs_partial += nreqs;
   }
 
   unsigned k = m_config->nbk;
@@ -603,6 +623,7 @@ void dram_t::cycle() {
   /////////////////////////////////////////////////////////
 
   // decrements counters once for each time dram_issueCMD is called
+  m_dram_cycle++;
   DEC2ZERO(RRDc);
   DEC2ZERO(CCDc);
   DEC2ZERO(RTWc);
@@ -996,7 +1017,7 @@ void dram_t::print(FILE *simFile) const {
   fprintf(simFile, "\ndram_eff_bins:");
   for (i = 0; i < 10; i++) fprintf(simFile, " %d", dram_eff_bins[i]);
   fprintf(simFile, "\n");
-  if (m_config->scheduler_type == DRAM_FRFCFS)
+  if (m_config->scheduler_type != DRAM_FIFO)
     fprintf(simFile, "mrqq: max=%d avg=%g\n", max_mrqs,
             (float)ave_mrqs / n_cmd);
 }
@@ -1012,7 +1033,7 @@ void dram_t::visualize() const {
       printf("txf: %d %d", bk[i]->mrq->nbytes, bk[i]->mrq->txbytes);
     printf("\n");
   }
-  if (m_frfcfs_scheduler) m_frfcfs_scheduler->print(stdout);
+  if (m_scheduler) m_scheduler->print(stdout);
 }
 
 void dram_t::print_stat(FILE *simFile) {

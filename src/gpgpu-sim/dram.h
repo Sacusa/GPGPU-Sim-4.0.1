@@ -152,6 +152,8 @@ class dram_t {
 
   unsigned get_bankgrp_number(unsigned i);
 
+  unsigned long long m_dram_cycle;
+
   void scheduler_fifo();
   void scheduler_frfcfs();
 
@@ -246,7 +248,7 @@ class dram_t {
   unsigned long long last_non_pim_finish_timestamp;
   unsigned long long last_pim_finish_timestamp;
 
-  class frfcfs_scheduler *m_frfcfs_scheduler;
+  class dram_scheduler *m_scheduler;
 
   unsigned int n_cmd_partial;
   unsigned int n_activity_partial;
@@ -260,7 +262,11 @@ class dram_t {
   class memory_stats_t *m_stats;
   class Stats *mrqq_Dist;  // memory request queue inside DRAM
 
+  friend class dram_scheduler;
   friend class frfcfs_scheduler;
+  friend class gi_scheduler;
+  friend class i1_scheduler;
+  friend class i2_scheduler;
 };
 
 #endif /*DRAM_H*/

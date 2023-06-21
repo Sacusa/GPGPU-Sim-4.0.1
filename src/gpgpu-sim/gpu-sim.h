@@ -66,7 +66,8 @@ class gpgpu_context;
 
 extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
-enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1 };
+enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1, DRAM_GI = 2, DRAM_I1 = 3,
+                   DRAM_I2 = 4};
 
 struct power_config {
   power_config() { m_valid = true; }

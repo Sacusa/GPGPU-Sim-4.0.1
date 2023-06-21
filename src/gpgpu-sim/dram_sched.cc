@@ -32,7 +32,7 @@
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-frfcfs_scheduler::frfcfs_scheduler(const memory_config *config, dram_t *dm,
+dram_scheduler::dram_scheduler(const memory_config *config, dram_t *dm,
                                    memory_stats_t *stats) {
   m_config = config;
   m_stats = stats;
@@ -73,7 +73,7 @@ frfcfs_scheduler::frfcfs_scheduler(const memory_config *config, dram_t *dm,
   m_pim_queue->clear();
 }
 
-void frfcfs_scheduler::add_req(dram_req_t *req) {
+void dram_scheduler::add_req(dram_req_t *req) {
   if (req->data->is_pim()) {
     assert(m_num_pim_pending < m_config->gpgpu_frfcfs_dram_pim_queue_size);
     m_num_pim_pending++;
@@ -94,7 +94,7 @@ void frfcfs_scheduler::add_req(dram_req_t *req) {
   }
 }
 
-void frfcfs_scheduler::data_collection(unsigned int bank) {
+void dram_scheduler::data_collection(unsigned int bank) {
   if (m_dram->m_gpu->gpu_sim_cycle > row_service_timestamp[bank]) {
     curr_row_service_time[bank] =
         m_dram->m_gpu->gpu_sim_cycle - row_service_timestamp[bank];
@@ -114,41 +114,8 @@ void frfcfs_scheduler::data_collection(unsigned int bank) {
   m_stats->num_activates[m_dram->id][bank]++;
 }
 
-void frfcfs_scheduler::update_mode() {
+void dram_scheduler::update_mode() {
   bool have_reads = false, have_writes = false;
-
-  for (unsigned b = 0; b < m_config->nbk; b++) {
-    have_reads = have_reads || !m_queue[b].empty();
-    if (m_config->seperate_write_queue_enabled) {
-      have_writes = have_writes || !m_write_queue[b].empty();
-    }
-  }
-
-  bool have_pim = !m_pim_queue->empty();
-
-  if (m_dram->mode == PIM_MODE) {
-    if ((m_num_pim_pending < m_config->pim_low_watermark)
-        && (have_reads || have_writes)) {
-      // Just switch to READ_MODE. The following code sequence will take care
-      // of deciding whether we stay in READ_MODE or switch to WRITE_MODE.
-      m_dram->mode = READ_MODE;
-      m_dram->num_mode_switches++;
-
-#ifdef DRAM_VERIFY
-      printf("DRAM: Switching to non-PIM mode\n");
-#endif
-    }
-  } else {
-    if ((m_num_pim_pending >= m_config->pim_high_watermark)
-        || (!have_reads && !have_writes && have_pim)) {
-      m_dram->mode = PIM_MODE;
-      m_dram->num_mode_switches++;
-
-#ifdef DRAM_VERIFY
-      printf("DRAM: Switching to PIM mode\n");
-#endif
-    }
-  }
 
   if (m_config->seperate_write_queue_enabled) {
     if (m_dram->mode == READ_MODE &&
@@ -165,7 +132,7 @@ void frfcfs_scheduler::update_mode() {
   }
 }
 
-dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
+dram_req_t *dram_scheduler::schedule(unsigned bank, unsigned curr_row){
   // row
   bool rowhit = true;
   std::list<dram_req_t *> *m_current_queue = m_queue;
@@ -243,56 +210,40 @@ dram_req_t *frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   return req;
 }
 
-void frfcfs_scheduler::schedule_pim() {
-  if (m_num_pim_pending == 0) { return; }
+dram_req_t *dram_scheduler::schedule_pim() {
+  if (m_num_pim_pending == 0) { return NULL; }
 
   dram_req_t *req = m_pim_queue->front();
 
-  bool can_schedule = true;
+  m_pim_queue->pop_front();
+  m_num_pim_pending--;
+
+  m_dram->access_num++;
+  m_dram->pim_num++;
+
+  bool rowhit = true;
 
   for (unsigned int b = 0; b < m_config->nbk; b++) {
-    if (m_dram->bk[b]->mrq) {
-      can_schedule = false;
-      break;
+    bool bank_rowhit = m_dram->bk[b]->curr_row == req->row;
+    rowhit = rowhit && bank_rowhit;
+
+    if (!bank_rowhit) {
+      data_collection(b);
     }
+
+    m_stats->concurrent_row_access[m_dram->id][b]++;
+    m_stats->row_access[m_dram->id][b]++;
   }
 
-  if (can_schedule) {
-    m_pim_queue->pop_front();
-    m_num_pim_pending--;
-
-    m_dram->access_num++;
-    m_dram->pim_num++;
-
-    bool rowhit = true;
-
-    for (unsigned int b = 0; b < m_config->nbk; b++) {
-      m_dram->bk[b]->mrq = req;
-
-      bool bank_rowhit = m_dram->bk[b]->curr_row == req->row;
-      rowhit = rowhit && bank_rowhit;
-
-      if (!bank_rowhit) {
-        data_collection(b);
-      }
-
-      m_stats->concurrent_row_access[m_dram->id][b]++;
-      m_stats->row_access[m_dram->id][b]++;
-    }
-
-    if (rowhit) {
-      m_dram->hits_num++;
-      m_dram->hits_pim_num++;
-    }
-
-    if (m_dram->first_pim_issue_timestamp == 0) {
-      m_dram->first_pim_issue_timestamp = m_dram->m_gpu->gpu_sim_cycle +
-                                          m_dram->m_gpu->gpu_tot_sim_cycle;
-    }
+  if (rowhit) {
+    m_dram->hits_num++;
+    m_dram->hits_pim_num++;
   }
+
+  return req;
 }
 
-void frfcfs_scheduler::print(FILE *fp) {
+void dram_scheduler::print(FILE *fp) {
   for (unsigned b = 0; b < m_config->nbk; b++) {
     printf(" %u: queue length = %u\n", b, (unsigned)m_queue[b].size());
   }
@@ -300,7 +251,7 @@ void frfcfs_scheduler::print(FILE *fp) {
 
 void dram_t::scheduler_frfcfs() {
   dram_req_t *req = NULL;
-  frfcfs_scheduler *sched = m_frfcfs_scheduler;
+  dram_scheduler *sched = m_scheduler;
 
   while (!mrqq->empty()) {
     dram_req_t *req = mrqq->pop();
@@ -326,7 +277,29 @@ void dram_t::scheduler_frfcfs() {
   sched->update_mode();
 
   if (mode == PIM_MODE) {
-    sched->schedule_pim();
+    bool can_schedule = true;
+
+    for (unsigned b = 0; b < m_config->nbk; b++) {
+      if (bk[b]->mrq) {
+        can_schedule = false;
+        break;
+      }
+    }
+
+    if (can_schedule) {
+      dram_req_t *req = sched->schedule_pim();
+
+      if (req) {
+        for (unsigned b = 0; b < m_config->nbk; b++) {
+          bk[b]->mrq = req;
+        }
+
+        if (first_pim_issue_timestamp == 0) {
+          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
+                                      m_gpu->gpu_tot_sim_cycle;
+        }
+      }
+    }
   }
 
   else {

@@ -48,7 +48,11 @@ mem_fetch::mem_fetch(const mem_access_t &access, const warp_inst_t *inst,
     m_inst = *inst;
     assert(wid == m_inst.warp_id());
   }
-  m_data_size = access.get_size();
+  if (CACHE_STREAMING == m_inst.cache_op) {
+    m_data_size = inst->data_size * 8;
+  } else {
+    m_data_size = access.get_size();
+  }
   m_ctrl_size = ctrl_size;
   m_sid = sid;
   m_tpc = tpc;

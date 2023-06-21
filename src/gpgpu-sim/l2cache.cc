@@ -700,7 +700,7 @@ std::vector<mem_fetch *>
 memory_sub_partition::breakdown_request_to_sector_requests(mem_fetch *mf) {
   std::vector<mem_fetch *> result;
 
-  if (mf->get_data_size() == SECTOR_SIZE &&
+  if (mf->get_data_size() <= SECTOR_SIZE &&
       mf->get_access_sector_mask().count() == 1) {
     result.push_back(mf);
   } else if (mf->get_data_size() == 128 || mf->get_data_size() == 64) {

@@ -33,8 +33,7 @@ void i2_scheduler::update_mode() {
 
   if (m_dram->mode == PIM_MODE) {
     // Transaction is over if the next PIM request will access a new row
-    bool is_batch_over = (m_pim_batch_start_time > 0) &&
-                         ((m_num_pim_pending == 0) ||
+    bool is_batch_over = (m_pim_batch_start_time > 0) && (!have_pim ||
                           (m_pim_queue->front()->row != m_last_pim_row));
 
     if (is_batch_over) {
@@ -50,40 +49,41 @@ void i2_scheduler::update_mode() {
         }
         m_max_non_pim_reqs[b] = (m_pim_batch_dur * 2) / avg_req_latency;
       }
-
-      if (have_reads || have_writes) {
-        m_num_non_pim_reqs.assign(m_config->nbk, 0);
-
-        m_non_pim_req_start_time.assign(m_config->nbk, 0);
-        m_non_pim_batch_dur.assign(m_config->nbk, 0);
-
-        m_dram->mode = READ_MODE;
-        m_dram->num_mode_switches++;
-#ifdef DRAM_VERIFY
-        printf("DRAM: Switching to non-PIM mode\n");
-#endif
-      }
     }
 
-  } else {
-    bool pim_threshold_exceeded = false;
+    if ((is_batch_over || !have_pim) && (have_reads || have_writes)) {
+      m_num_non_pim_reqs.assign(m_config->nbk, 0);
 
+      m_non_pim_req_start_time.assign(m_config->nbk, 0);
+      m_non_pim_batch_dur.assign(m_config->nbk, 0);
+
+      m_dram->mode = READ_MODE;
+      m_dram->num_mode_switches++;
+#ifdef DRAM_VERIFY
+      printf("DRAM: Switching to non-PIM mode\n");
+#endif
+    }
+  }
+
+  else {
     if (have_pim) {
+      bool pim_threshold_exceeded = false;
+
       for (unsigned b = 0; b < m_config->nbk; b++) {
         if (m_num_non_pim_reqs[b] > m_max_non_pim_reqs[b]) {
           pim_threshold_exceeded = true;
           break;
         }
       }
-    }
 
-    if (pim_threshold_exceeded || !(have_reads || have_writes)) {
-      m_dram->mode = PIM_MODE;
-      m_dram->num_mode_switches++;
+      if (pim_threshold_exceeded || !(have_reads || have_writes)) {
+        m_dram->mode = PIM_MODE;
+        m_dram->num_mode_switches++;
 
 #ifdef DRAM_VERIFY
-      printf("DRAM: Switching to PIM mode\n");
+        printf("DRAM: Switching to PIM mode\n");
 #endif
+      }
     }
   }
 

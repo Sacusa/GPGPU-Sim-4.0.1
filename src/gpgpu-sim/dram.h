@@ -243,8 +243,8 @@ class dram_t {
 
   // PIM statistics
   unsigned long long num_mode_switches;
-  unsigned long long first_non_pim_issue_timestamp;
-  unsigned long long first_pim_issue_timestamp;
+  unsigned long long first_non_pim_insert_timestamp;
+  unsigned long long first_pim_insert_timestamp;
   unsigned long long last_non_pim_finish_timestamp;
   unsigned long long last_pim_finish_timestamp;
 

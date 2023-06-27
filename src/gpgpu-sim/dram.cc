@@ -185,8 +185,8 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   mode = READ_MODE;
 
   num_mode_switches = 0;
-  first_non_pim_issue_timestamp = 0;
-  first_pim_issue_timestamp = 0;
+  first_non_pim_insert_timestamp = 0;
+  first_pim_insert_timestamp = 0;
   last_non_pim_finish_timestamp = 0;
   last_pim_finish_timestamp = 0;
 }
@@ -311,6 +311,11 @@ void dram_t::scheduler_fifo() {
     bkn = head_mrqq->bk;
 
     if (head_mrqq->data->is_pim()) {
+      if (first_pim_insert_timestamp == 0) {
+        first_pim_insert_timestamp = m_gpu->gpu_sim_cycle +
+                                     m_gpu->gpu_tot_sim_cycle;
+      }
+
       bool can_schedule = true;
 
       for (unsigned int b = 0; b < m_config->nbk; b++) {
@@ -325,11 +330,6 @@ void dram_t::scheduler_fifo() {
         for (unsigned int b = 0; b < m_config->nbk; b++) {
           bk[b]->mrq = head_mrqq;
         }
-
-        if (first_pim_issue_timestamp == 0) {
-          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
-                                      m_gpu->gpu_tot_sim_cycle;
-        }
       }
 
       if (mode != PIM_MODE) {
@@ -338,13 +338,13 @@ void dram_t::scheduler_fifo() {
       mode = PIM_MODE;
     }
     else {
+      if (first_non_pim_insert_timestamp == 0) {
+        first_pim_insert_timestamp = m_gpu->gpu_sim_cycle +
+                                     m_gpu->gpu_tot_sim_cycle;
+      }
+
       if (!bk[bkn]->mrq) {
         bk[bkn]->mrq = mrqq->pop();
-
-        if (first_non_pim_issue_timestamp == 0) {
-          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
-                                      m_gpu->gpu_tot_sim_cycle;
-        }
       }
 
       if (mode == PIM_MODE) {
@@ -996,8 +996,8 @@ void dram_t::print(FILE *simFile) const {
 
   printf("\nPIM statistics:\n");
   printf("num_mode_switches = %llu\n",  num_mode_switches);
-  printf("first_non_pim_issue = %llu\n", first_non_pim_issue_timestamp);
-  printf("first_pim_issue = %llu\n", first_pim_issue_timestamp);
+  printf("first_non_pim_insert = %llu\n", first_non_pim_insert_timestamp);
+  printf("first_pim_insert = %llu\n", first_pim_insert_timestamp);
   printf("last_non_pim_finish = %llu\n", last_non_pim_finish_timestamp);
   printf("last_pim_finish = %llu\n", last_pim_finish_timestamp);
 

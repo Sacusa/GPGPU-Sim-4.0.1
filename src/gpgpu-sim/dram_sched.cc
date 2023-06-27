@@ -78,6 +78,11 @@ void dram_scheduler::add_req(dram_req_t *req) {
     assert(m_num_pim_pending < m_config->gpgpu_frfcfs_dram_pim_queue_size);
     m_num_pim_pending++;
     m_pim_queue->push_back(req);
+
+    if (m_dram->first_pim_insert_timestamp == 0) {
+      m_dram->first_pim_insert_timestamp = m_dram->m_gpu->gpu_sim_cycle +
+                                           m_dram->m_gpu->gpu_tot_sim_cycle;
+    }
   } else if (m_config->seperate_write_queue_enabled && req->data->is_write()) {
     assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
     m_num_write_pending++;
@@ -85,12 +90,22 @@ void dram_scheduler::add_req(dram_req_t *req) {
     std::list<dram_req_t *>::iterator ptr = m_write_queue[req->bk].begin();
     m_write_bins[req->bk][req->row].push_front(ptr);  // newest reqs to the
                                                       // front
+
+    if (m_dram->first_non_pim_insert_timestamp == 0) {
+      m_dram->first_non_pim_insert_timestamp = m_dram->m_gpu->gpu_sim_cycle +
+                                              m_dram->m_gpu->gpu_tot_sim_cycle;
+    }
   } else {
     assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
     m_num_pending++;
     m_queue[req->bk].push_front(req);
     std::list<dram_req_t *>::iterator ptr = m_queue[req->bk].begin();
     m_bins[req->bk][req->row].push_front(ptr);  // newest reqs to the front
+
+    if (m_dram->first_non_pim_insert_timestamp == 0) {
+      m_dram->first_non_pim_insert_timestamp = m_dram->m_gpu->gpu_sim_cycle +
+                                              m_dram->m_gpu->gpu_tot_sim_cycle;
+    }
   }
 }
 
@@ -293,11 +308,6 @@ void dram_t::scheduler_frfcfs() {
         for (unsigned b = 0; b < m_config->nbk; b++) {
           bk[b]->mrq = req;
         }
-
-        if (first_pim_issue_timestamp == 0) {
-          first_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
-                                      m_gpu->gpu_tot_sim_cycle;
-        }
       }
     }
   }
@@ -312,11 +322,6 @@ void dram_t::scheduler_frfcfs() {
         if (req) {
           prio = (prio + 1) % m_config->nbk;
           bk[b]->mrq = req;
-
-          if (first_non_pim_issue_timestamp == 0) {
-            first_non_pim_issue_timestamp = m_gpu->gpu_sim_cycle +
-                                            m_gpu->gpu_tot_sim_cycle;
-          }
 
           break;
         }

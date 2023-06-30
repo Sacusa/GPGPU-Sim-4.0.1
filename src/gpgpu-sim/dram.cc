@@ -56,6 +56,8 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   m_gpu = gpu;
 
   m_dram_cycle = 0;
+  last_non_pim_req_insert_cycle = 0;
+  last_pim_req_insert_cycle = 0;
 
   // rowblp
   access_num = 0;
@@ -287,6 +289,18 @@ void dram_t::push(class mem_fetch *data) {
   data->set_status(IN_PARTITION_MC_INTERFACE_QUEUE,
                    m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
   mrqq->push(mrq);
+
+  if (data->is_pim()) {
+    pim_req_arrival_latency.push_back(m_dram_cycle -
+        last_pim_req_insert_cycle);
+    last_pim_req_insert_cycle = m_dram_cycle;
+
+    n_pim++;
+  } else {
+    non_pim_req_arrival_latency.push_back(m_dram_cycle -
+        last_non_pim_req_insert_cycle);
+    last_non_pim_req_insert_cycle = m_dram_cycle;
+  }
 
   // stats...
   n_req += 1;
@@ -825,8 +839,6 @@ bool dram_t::issue_pim_col_command() {
 
     CCDc = m_config->tCCD;
     WTRc = m_config->tWTR;
-
-    n_pim++;
   }
 
   return can_issue;
@@ -960,6 +972,52 @@ void dram_t::print(FILE *simFile) const {
          write_to_read_ratio_blp_rw_average / banks_access_rw_total);
   printf("\nGrpLevelPara = %.6f \n",
          (float)bkgrp_parallsim_rw / banks_access_rw_total);
+
+  // Request arrival rate stats
+  double sum_non_pim = 0;
+  double mean_non_pim = 0;
+  double sq_sum_non_pim = 0;
+  double stdev_non_pim = 0;
+  double max_non_pim = 0;
+  unsigned long long n_non_pim = n_req - n_pim;
+
+  if (n_non_pim > 0) {
+    sum_non_pim = std::accumulate(non_pim_req_arrival_latency.begin(),
+        non_pim_req_arrival_latency.end(), 0.0);
+    mean_non_pim = sum_non_pim / n_non_pim;
+    sq_sum_non_pim = std::inner_product(non_pim_req_arrival_latency.begin(),
+        non_pim_req_arrival_latency.end(), non_pim_req_arrival_latency.begin(),
+        0.0);
+    stdev_non_pim = std::sqrt(sq_sum_non_pim / n_non_pim -
+        mean_non_pim * mean_non_pim);
+    max_non_pim = *std::max_element(std::begin(non_pim_req_arrival_latency), 
+        std::end(non_pim_req_arrival_latency));
+  }
+
+  printf("\nAvgNonPimReqArrivalLatency = %.6f", mean_non_pim);
+  printf("\nMaxNonPimReqArrivalLatency = %.6f", max_non_pim);
+  printf("\nStDevNonPimReqArrivalLatency = %.6f \n", stdev_non_pim);
+
+  double sum_pim = 0;
+  double mean_pim = 0;
+  double sq_sum_pim = 0;
+  double stdev_pim = 0;
+  double max_pim = 0;
+
+  if (n_pim > 0) {
+    sum_pim = std::accumulate(pim_req_arrival_latency.begin(),
+        pim_req_arrival_latency.end(), 0.0);
+    mean_pim = sum_pim / n_pim;
+    sq_sum_pim = std::inner_product(pim_req_arrival_latency.begin(),
+        pim_req_arrival_latency.end(), pim_req_arrival_latency.begin(), 0.0);
+    stdev_pim = std::sqrt(sq_sum_pim / n_pim - mean_pim * mean_pim);
+    max_pim = *std::max_element(std::begin(pim_req_arrival_latency), 
+        std::end(pim_req_arrival_latency));
+  }
+
+  printf("\nAvgPimReqArrivalLatency = %.6f", mean_pim);
+  printf("\nMaxPimReqArrivalLatency = %.6f", max_pim);
+  printf("\nStDevPimReqArrivalLatency = %.6f \n", stdev_pim);
 
   printf("\nBW Util details:\n");
   printf("bwutil = %.6f \n", (float)bwutil / n_cmd);

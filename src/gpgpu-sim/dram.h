@@ -40,6 +40,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <numeric>
 #include "delayqueue.h"
 
 #define READ 'R'  // define read and write states
@@ -153,6 +155,11 @@ class dram_t {
   unsigned get_bankgrp_number(unsigned i);
 
   unsigned long long m_dram_cycle;
+
+  unsigned long long last_non_pim_req_insert_cycle;
+  unsigned long long last_pim_req_insert_cycle;
+  std::vector<unsigned long long> non_pim_req_arrival_latency;
+  std::vector<unsigned long long> pim_req_arrival_latency;
 
   void scheduler_fifo();
   void scheduler_frfcfs();

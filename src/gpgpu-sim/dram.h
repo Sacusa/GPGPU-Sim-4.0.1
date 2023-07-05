@@ -274,6 +274,7 @@ class dram_t {
   friend class gi_scheduler;
   friend class i1_scheduler;
   friend class i2_scheduler;
+  friend class i2a_scheduler;
 };
 
 #endif /*DRAM_H*/

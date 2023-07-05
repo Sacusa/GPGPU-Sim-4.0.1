@@ -32,6 +32,7 @@
 #include "dram_sched_gi.h"
 #include "dram_sched_i1.h"
 #include "dram_sched_i2.h"
+#include "dram_sched_i2a.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -142,6 +143,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
       break;
     case DRAM_I2:
       m_scheduler = new i2_scheduler(m_config, this, stats);
+      break;
+    case DRAM_I2A:
+      m_scheduler = new i2a_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");

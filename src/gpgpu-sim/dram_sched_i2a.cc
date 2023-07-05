@@ -1,11 +1,11 @@
 #include "dram_sched.h"
-#include "dram_sched_i2.h"
+#include "dram_sched_i2a.h"
 #include "../abstract_hardware_model.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-i2_scheduler::i2_scheduler(const memory_config *config, dram_t *dm,
+i2a_scheduler::i2a_scheduler(const memory_config *config, dram_t *dm,
     memory_stats_t *stats) : dram_scheduler(config, dm, stats) {
   m_num_non_pim_reqs.assign(m_config->nbk, 0);
   m_max_non_pim_reqs.assign(m_config->nbk, 0);
@@ -19,7 +19,7 @@ i2_scheduler::i2_scheduler(const memory_config *config, dram_t *dm,
   m_pim_batch_dur = 0;
 }
 
-void i2_scheduler::update_mode() {
+void i2a_scheduler::update_mode() {
   bool have_reads = false, have_writes = false;
 
   for (unsigned b = 0; b < m_config->nbk; b++) {
@@ -38,6 +38,7 @@ void i2_scheduler::update_mode() {
 
     if (is_batch_over) {
       m_pim_batch_dur = m_dram->m_dram_cycle - m_pim_batch_start_time;
+      m_pim_batch_start_time = 0;
 
       for (unsigned b = 0; b < m_config->nbk; b++) {
         unsigned avg_req_latency;
@@ -50,13 +51,18 @@ void i2_scheduler::update_mode() {
       }
     }
 
-    if ((is_batch_over || !have_pim) && (have_reads || have_writes)) {
+    bool read_threshold_exceeded =
+      m_num_pending >= m_config->queue_high_watermark;
+    bool write_threshold_exceeded = m_config->seperate_write_queue_enabled &&
+      (m_num_write_pending >= m_config->write_high_watermark);
+
+    if ((is_batch_over && (read_threshold_exceeded ||
+            write_threshold_exceeded)) || (!have_pim && (have_reads ||
+              have_writes))) {
       m_num_non_pim_reqs.assign(m_config->nbk, 0);
 
       m_non_pim_req_start_time.assign(m_config->nbk, 0);
       m_non_pim_batch_dur.assign(m_config->nbk, 0);
-
-      m_pim_batch_start_time = 0;
 
       m_dram->mode = READ_MODE;
       m_dram->num_mode_switches++;
@@ -91,7 +97,7 @@ void i2_scheduler::update_mode() {
   dram_scheduler::update_mode();
 }
 
-dram_req_t *i2_scheduler::schedule(unsigned bank, unsigned curr_row) {
+dram_req_t *i2a_scheduler::schedule(unsigned bank, unsigned curr_row) {
   dram_req_t *req = dram_scheduler::schedule(bank, curr_row);
 
   if (m_non_pim_req_start_time[bank] > 0) {
@@ -109,7 +115,7 @@ dram_req_t *i2_scheduler::schedule(unsigned bank, unsigned curr_row) {
   return req;
 }
 
-dram_req_t *i2_scheduler::schedule_pim() {
+dram_req_t *i2a_scheduler::schedule_pim() {
   dram_req_t *req = dram_scheduler::schedule_pim();
 
   if (req) {

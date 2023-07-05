@@ -67,7 +67,7 @@ class gpgpu_context;
 extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
 enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1, DRAM_GI = 2, DRAM_I1 = 3,
-                   DRAM_I2 = 4};
+                   DRAM_I2 = 4, DRAM_I2A = 5};
 
 struct power_config {
   power_config() { m_valid = true; }
@@ -232,6 +232,10 @@ class memory_config {
 
     m_valid = true;
 
+    sscanf(queue_size_opt, "%d:%d:%d",
+           &gpgpu_frfcfs_dram_sched_queue_size, &queue_high_watermark,
+           &queue_low_watermark);
+
     sscanf(write_queue_size_opt, "%d:%d:%d",
            &gpgpu_frfcfs_dram_write_queue_size, &write_high_watermark,
            &write_low_watermark);
@@ -249,7 +253,12 @@ class memory_config {
   char *gpgpu_dram_timing_opt;
   char *gpgpu_L2_queue_config;
   bool l2_ideal;
+
+  char *queue_size_opt;
   unsigned gpgpu_frfcfs_dram_sched_queue_size;
+  unsigned queue_high_watermark;
+  unsigned queue_low_watermark;
+
   unsigned gpgpu_dram_return_queue_size;
   enum dram_ctrl_t scheduler_type;
   bool gpgpu_memlatency_stat;
@@ -409,7 +418,6 @@ class gpgpu_sim_config : public power_config,
   bool gpgpu_flush_l1_cache;
   bool gpgpu_flush_l2_cache;
   bool gpu_deadlock_detect;
-  int gpgpu_frfcfs_dram_sched_queue_size;
   int gpgpu_cflog_interval;
   char *gpgpu_clock_domains;
   unsigned max_concurrent_kernel;

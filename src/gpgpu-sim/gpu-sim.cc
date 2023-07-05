@@ -167,9 +167,10 @@ void memory_config::reg_options(class OptionParser *opp) {
                          "track and display latency statistics 0x2 enables MC, "
                          "0x4 enables queue logs",
                          "0");
-  option_parser_register(opp, "-gpgpu_frfcfs_dram_sched_queue_size", OPT_INT32,
-                         &gpgpu_frfcfs_dram_sched_queue_size,
-                         "0 = unlimited (default); # entries per chip", "0");
+  option_parser_register(opp, "-gpgpu_frfcfs_dram_sched_queue_size", OPT_CSTR,
+                         &queue_size_opt,
+                         "0:0:0 = unlimited (default); # entries per chip",
+                         "0:0:0");
   option_parser_register(opp, "-gpgpu_dram_return_queue_size", OPT_INT32,
                          &gpgpu_dram_return_queue_size,
                          "0 = unlimited (default); # entries per chip", "0");

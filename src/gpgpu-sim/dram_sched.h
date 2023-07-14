@@ -42,6 +42,8 @@ class dram_scheduler {
                    memory_stats_t *stats);
   void add_req(dram_req_t *req);
   void data_collection(unsigned bank);
+  bool is_next_req_hit(unsigned bank, unsigned curr_row,
+      enum memory_mode mode);
 
   virtual void update_mode();
   virtual dram_req_t *schedule(unsigned bank, unsigned curr_row);
@@ -73,6 +75,8 @@ class dram_scheduler {
   std::list<dram_req_t *> *m_pim_queue;
 
   memory_stats_t *m_stats;
+
+  friend class dram_t;
 };
 
 #endif

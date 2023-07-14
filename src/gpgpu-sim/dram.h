@@ -249,7 +249,10 @@ class dram_t {
   unsigned int ave_mrqs;
 
   // PIM statistics
-  unsigned long long num_mode_switches;
+  unsigned long long pim2nonpimswitches;
+  unsigned long long nonpim2pimswitches;
+  unsigned long long nonpim2pimswitchlatency;
+  unsigned long long nonpim2pimswitchconflicts;
   unsigned long long first_non_pim_insert_timestamp;
   unsigned long long first_pim_insert_timestamp;
   unsigned long long last_non_pim_finish_timestamp;

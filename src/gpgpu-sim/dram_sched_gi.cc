@@ -27,7 +27,7 @@ void gi_scheduler::update_mode() {
       // Just switch to READ_MODE. The following code sequence will take care
       // of deciding whether we stay in READ_MODE or switch to WRITE_MODE.
       m_dram->mode = READ_MODE;
-      m_dram->num_mode_switches++;
+      m_dram->pim2nonpimswitches++;
 
 #ifdef DRAM_VERIFY
       printf("DRAM: Switching to non-PIM mode\n");
@@ -37,7 +37,7 @@ void gi_scheduler::update_mode() {
     if ((m_num_pim_pending >= m_config->pim_high_watermark)
         || (!have_reads && !have_writes && have_pim)) {
       m_dram->mode = PIM_MODE;
-      m_dram->num_mode_switches++;
+      m_dram->nonpim2pimswitches++;
 
 #ifdef DRAM_VERIFY
       printf("DRAM: Switching to PIM mode\n");

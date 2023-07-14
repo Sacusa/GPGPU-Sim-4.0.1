@@ -190,7 +190,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
 
   mode = READ_MODE;
 
-  num_mode_switches = 0;
+  pim2nonpimswitches = 0;
+  nonpim2pimswitches = 0;
+  nonpim2pimswitchlatency = 0;
   first_non_pim_insert_timestamp = 0;
   first_pim_insert_timestamp = 0;
   last_non_pim_finish_timestamp = 0;
@@ -339,6 +341,11 @@ void dram_t::scheduler_fifo() {
       for (unsigned int b = 0; b < m_config->nbk; b++) {
         if (bk[b]->mrq) {
           can_schedule = false;
+
+          if (!bk[b]->mrq->data->is_pim()) {
+            nonpim2pimswitchlatency++;
+          }
+
           break;
         }
       }
@@ -351,7 +358,7 @@ void dram_t::scheduler_fifo() {
       }
 
       if (mode != PIM_MODE) {
-        num_mode_switches++;
+        nonpim2pimswitches++;
       }
       mode = PIM_MODE;
     }
@@ -366,7 +373,7 @@ void dram_t::scheduler_fifo() {
       }
 
       if (mode == PIM_MODE) {
-        num_mode_switches++;
+        pim2nonpimswitches++;
       }
       mode = READ_MODE;  // Doesn't matter what mode we set to
     }
@@ -1057,7 +1064,10 @@ void dram_t::print(FILE *simFile) const {
   printf("total_req = %llu \n", n_rd + n_wr + n_rd_L2_A + n_wr_WB + n_pim);
 
   printf("\nPIM statistics:\n");
-  printf("num_mode_switches = %llu\n",  num_mode_switches);
+  printf("pim2nonpimswitches = %llu\n", pim2nonpimswitches);
+  printf("nonpim2pimswitches = %llu\n", nonpim2pimswitches);
+  printf("nonpim2pimswitchlatency = %llu\n", nonpim2pimswitchlatency);
+  printf("nonpim2pimswitchconflicts = %llu\n", nonpim2pimswitchconflicts);
   printf("first_non_pim_insert = %llu\n", first_non_pim_insert_timestamp);
   printf("first_pim_insert = %llu\n", first_pim_insert_timestamp);
   printf("last_non_pim_finish = %llu\n", last_non_pim_finish_timestamp);

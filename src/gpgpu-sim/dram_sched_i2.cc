@@ -59,7 +59,7 @@ void i2_scheduler::update_mode() {
       m_pim_batch_start_time = 0;
 
       m_dram->mode = READ_MODE;
-      m_dram->num_mode_switches++;
+      m_dram->pim2nonpimswitches++;
 #ifdef DRAM_VERIFY
       printf("DRAM: Switching to non-PIM mode\n");
 #endif
@@ -79,7 +79,7 @@ void i2_scheduler::update_mode() {
 
       if (pim_threshold_exceeded || !(have_reads || have_writes)) {
         m_dram->mode = PIM_MODE;
-        m_dram->num_mode_switches++;
+        m_dram->nonpim2pimswitches++;
 
 #ifdef DRAM_VERIFY
         printf("DRAM: Switching to PIM mode\n");

@@ -38,7 +38,6 @@ void i2a_scheduler::update_mode() {
 
     if (is_batch_over) {
       m_pim_batch_dur = m_dram->m_dram_cycle - m_pim_batch_start_time;
-      m_pim_batch_start_time = 0;
 
       for (unsigned b = 0; b < m_config->nbk; b++) {
         unsigned avg_req_latency;
@@ -64,8 +63,10 @@ void i2a_scheduler::update_mode() {
       m_non_pim_req_start_time.assign(m_config->nbk, 0);
       m_non_pim_batch_dur.assign(m_config->nbk, 0);
 
+      m_pim_batch_start_time = 0;
+
       m_dram->mode = READ_MODE;
-      m_dram->num_mode_switches++;
+      m_dram->pim2nonpimswitches++;
 #ifdef DRAM_VERIFY
       printf("DRAM: Switching to non-PIM mode\n");
 #endif
@@ -85,7 +86,7 @@ void i2a_scheduler::update_mode() {
 
       if (pim_threshold_exceeded || !(have_reads || have_writes)) {
         m_dram->mode = PIM_MODE;
-        m_dram->num_mode_switches++;
+        m_dram->nonpim2pimswitches++;
 
 #ifdef DRAM_VERIFY
         printf("DRAM: Switching to PIM mode\n");

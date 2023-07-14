@@ -129,6 +129,38 @@ void dram_scheduler::data_collection(unsigned int bank) {
   m_stats->num_activates[m_dram->id][bank]++;
 }
 
+bool dram_scheduler::is_next_req_hit(unsigned bank, unsigned curr_row,
+    enum memory_mode mode) {
+  bool rowhit = true;
+
+  std::list<dram_req_t *> *m_current_queue = m_queue;
+  std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >
+      *m_current_bins = m_bins;
+  std::list<std::list<dram_req_t *>::iterator> **m_current_last_row =
+      m_last_row;
+
+  if (mode == WRITE_MODE) {
+    m_current_queue = m_write_queue;
+    m_current_bins = m_write_bins;
+    m_current_last_row = m_last_write_row;
+  }
+
+  if (m_current_last_row[bank] == NULL) {
+    if (m_current_queue[bank].empty()) { return false; }
+
+    std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >::iterator
+        bin_ptr = m_current_bins[bank].find(curr_row);
+
+    if (bin_ptr == m_current_bins[bank].end()) {
+      rowhit = false;
+    } else {
+      rowhit = true;
+    }
+  }
+
+  return rowhit;
+}
+
 void dram_scheduler::update_mode() {
   bool have_reads = false, have_writes = false;
 
@@ -147,7 +179,7 @@ void dram_scheduler::update_mode() {
   }
 }
 
-dram_req_t *dram_scheduler::schedule(unsigned bank, unsigned curr_row){
+dram_req_t *dram_scheduler::schedule(unsigned bank, unsigned curr_row) {
   // row
   bool rowhit = true;
   std::list<dram_req_t *> *m_current_queue = m_queue;
@@ -289,7 +321,21 @@ void dram_t::scheduler_frfcfs() {
     sched->add_req(req);
   }
 
+  enum memory_mode prev_mode = mode;
+
   sched->update_mode();
+
+  if ((prev_mode != PIM_MODE) && (mode == PIM_MODE)) {
+    for (unsigned b = 0; b < m_config->nbk; b++) {
+      if (sched->is_next_req_hit(b, bk[b]->curr_row, prev_mode)) {
+        nonpim2pimswitchconflicts++;
+      }
+
+      // Ensure we do not record row buffer hits after we switch back from PIM
+      // to non-PIM
+      sched->m_last_row[b] = NULL;
+    }
+  }
 
   if (mode == PIM_MODE) {
     bool can_schedule = true;
@@ -297,6 +343,11 @@ void dram_t::scheduler_frfcfs() {
     for (unsigned b = 0; b < m_config->nbk; b++) {
       if (bk[b]->mrq) {
         can_schedule = false;
+
+        if (!bk[b]->mrq->data->is_pim()) {
+          nonpim2pimswitchlatency++;
+        }
+
         break;
       }
     }

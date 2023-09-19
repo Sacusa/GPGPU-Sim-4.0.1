@@ -105,44 +105,11 @@ class shd_warp_t {
     m_inst_in_pipeline = 0;
     reset();
   }
-  void reset() {
-    assert(m_stores_outstanding == 0);
-    assert(m_inst_in_pipeline == 0);
-    m_imiss_pending = false;
-    m_warp_id = (unsigned)-1;
-    m_dynamic_warp_id = (unsigned)-1;
-    n_completed = m_warp_size;
-    m_n_atomic = 0;
-    m_membar = false;
-    m_done_exit = true;
-    m_last_fetch = 0;
-    m_next = 0;
+  void reset();
 
-    // Jin: cdp support
-    m_cdp_latency = 0;
-    m_cdp_dummy = false;
-
-    n_mem_ops_issued = 0;
-  }
   void init(address_type start_pc, unsigned cta_id, unsigned wid,
             const std::bitset<MAX_WARP_SIZE> &active,
-            unsigned dynamic_warp_id) {
-    m_cta_id = cta_id;
-    m_warp_id = wid;
-    m_dynamic_warp_id = dynamic_warp_id;
-    m_next_pc = start_pc;
-    assert(n_completed >= active.count());
-    assert(n_completed <= m_warp_size);
-    n_completed -= active.count();  // active threads are not yet completed
-    m_active_threads = active;
-    m_done_exit = false;
-
-    // Jin: cdp support
-    m_cdp_latency = 0;
-    m_cdp_dummy = false;
-
-    n_mem_ops_issued = 0;
-  }
+            unsigned dynamic_warp_id);
 
   bool functional_done() const;
   bool waiting();  // not const due to membar
@@ -247,6 +214,10 @@ class shd_warp_t {
   unsigned get_n_mem_ops_issued() { return n_mem_ops_issued; }
 
   class shader_core_ctx * get_shader() { return m_shader; }
+
+  void inc_inst_retired(unsigned count) { m_num_inst_retired += count; }
+  double get_ipc();
+
  private:
   static const unsigned IBUFFER_SIZE = 2;
   class shader_core_ctx *m_shader;
@@ -289,6 +260,10 @@ class shd_warp_t {
   // Jin: cdp support
 
   unsigned n_mem_ops_issued;
+
+  // Per-warp IPC
+  unsigned m_num_inst_retired;
+  unsigned long long m_init_cycle;
  public:
   unsigned int m_cdp_latency;
   bool m_cdp_dummy;

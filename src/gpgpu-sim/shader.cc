@@ -1002,6 +1002,7 @@ void shader_core_ctx::issue_warp(register_set &pipe_reg_set,
   m_warp[warp_id]->ibuffer_free();
   assert(next_inst->valid());
   **pipe_reg = *next_inst;  // static instruction information
+  (*pipe_reg)->set_warp(m_warp[warp_id]);
   (*pipe_reg)->issue(active_mask, warp_id,
                      m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle,
                      m_warp[warp_id]->get_dynamic_warp_id(),
@@ -1733,6 +1734,8 @@ void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
 
   m_stats->m_num_sim_winsn[m_sid]++;
   m_gpu->gpu_sim_insn += inst.active_count();
+  unsigned warp_id = inst.warp_id();
+  m_warp[warp_id]->inc_inst_retired(inst.active_count());
   inst.completed(m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
 }
 
@@ -3673,6 +3676,15 @@ bool shader_core_ctx::warp_waiting_at_mem_barrier(unsigned warp_id) {
   if (m_config->gpgpu_pim_fence) {
     if (m_warp[warp_id]->get_n_mem_ops_issued() == 0) {
       m_warp[warp_id]->clear_membar();
+      if (m_gpu->get_config().flush_l1()) {
+        // Mahmoud fixed this on Nov 2019
+        // Invalidate L1 cache
+        // Based on Nvidia Doc, at MEM barrier, we have to
+        //(1) wait for all pending writes till they are acked
+        //(2) invalidate L1 cache to ensure coherence and avoid reading stall data
+        cache_invalidate();
+        // TO DO: you need to stall the SM for 5k cycles.
+      }
       return false;
     }
   } else {
@@ -3775,6 +3787,53 @@ void shader_core_ctx::get_icnt_power_stats(long &n_simt_to_mem,
   n_mem_to_simt += m_stats->n_mem_to_simt[m_sid];
 }
 
+void shd_warp_t::reset() {
+  assert(m_stores_outstanding == 0);
+  assert(m_inst_in_pipeline == 0);
+  m_imiss_pending = false;
+  m_warp_id = (unsigned)-1;
+  m_dynamic_warp_id = (unsigned)-1;
+  n_completed = m_warp_size;
+  m_n_atomic = 0;
+  m_membar = false;
+  m_done_exit = true;
+  m_last_fetch = 0;
+  m_next = 0;
+
+  // Jin: cdp support
+  m_cdp_latency = 0;
+  m_cdp_dummy = false;
+
+  n_mem_ops_issued = 0;
+
+  m_num_inst_retired = 0;
+  m_init_cycle = m_shader->get_gpu()->gpu_sim_cycle + \
+                 m_shader->get_gpu()->gpu_tot_sim_cycle;
+}
+
+void shd_warp_t::init(address_type start_pc, unsigned cta_id, unsigned wid,
+          const std::bitset<MAX_WARP_SIZE> &active, unsigned dynamic_warp_id) {
+  m_cta_id = cta_id;
+  m_warp_id = wid;
+  m_dynamic_warp_id = dynamic_warp_id;
+  m_next_pc = start_pc;
+  assert(n_completed >= active.count());
+  assert(n_completed <= m_warp_size);
+  n_completed -= active.count();  // active threads are not yet completed
+  m_active_threads = active;
+  m_done_exit = false;
+
+  // Jin: cdp support
+  m_cdp_latency = 0;
+  m_cdp_dummy = false;
+
+  n_mem_ops_issued = 0;
+
+  m_num_inst_retired = 0;
+  m_init_cycle = m_shader->get_gpu()->gpu_sim_cycle + \
+                 m_shader->get_gpu()->gpu_tot_sim_cycle;
+}
+
 bool shd_warp_t::functional_done() const {
   return get_n_completed() == m_warp_size;
 }
@@ -3840,6 +3899,12 @@ void shd_warp_t::print_ibuffer(FILE *fout) const {
       fprintf(fout, " <empty> ");
   }
   fprintf(fout, "\n");
+}
+
+double shd_warp_t::get_ipc() {
+  return (double) m_num_inst_retired / \
+    (m_shader->get_gpu()->gpu_sim_cycle + \
+     m_shader->get_gpu()->gpu_tot_sim_cycle - m_init_cycle);
 }
 
 void opndcoll_rfu_t::add_cu_set(unsigned set_id, unsigned num_cu,

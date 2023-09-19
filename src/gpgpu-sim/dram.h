@@ -269,6 +269,13 @@ class dram_t {
   unsigned int ave_mrqs_partial;
   unsigned int bwutil_partial;
 
+  // Phase statistics
+  std::vector<unsigned> phase_length;
+  std::vector<unsigned long long> num_total_phases;
+  std::vector<unsigned long long> num_unstable_phases;
+  std::vector<unsigned long long> phase_requests;
+  std::vector<unsigned long long> prev_phase_requests;
+
   class memory_stats_t *m_stats;
   class Stats *mrqq_Dist;  // memory request queue inside DRAM
 
@@ -278,6 +285,7 @@ class dram_t {
   friend class i1_scheduler;
   friend class i2_scheduler;
   friend class i2a_scheduler;
+  friend class i3_scheduler;
 };
 
 #endif /*DRAM_H*/

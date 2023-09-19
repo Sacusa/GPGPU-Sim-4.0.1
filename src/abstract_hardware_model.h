@@ -33,6 +33,7 @@
 class gpgpu_sim;
 class kernel_info_t;
 class gpgpu_context;
+class shd_warp_t;
 
 // Set a hard limit of 32 CTAs per shader [cuda only has 8]
 #define MAX_CTA_PER_SHADER 32
@@ -1152,6 +1153,9 @@ class warp_inst_t : public inst_t {
   unsigned get_schd_id() const { return m_scheduler_id; }
   active_mask_t get_warp_active_mask() const { return m_warp_active_mask; }
 
+  void set_warp(shd_warp_t *warp) { m_warp = warp; }
+  shd_warp_t *get_warp() { return m_warp; }
+
  protected:
   unsigned m_uid;
   bool m_empty;
@@ -1191,6 +1195,9 @@ class warp_inst_t : public inst_t {
   unsigned m_scheduler_id;  // the scheduler that issues this inst
 
   // Jin: cdp support
+
+  // Support for accessing warp members, especially IPC
+  shd_warp_t *m_warp;
  public:
   int m_is_cdp;
 };

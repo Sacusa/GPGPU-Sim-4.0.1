@@ -33,6 +33,7 @@
 #include "dram_sched_i1.h"
 #include "dram_sched_i2.h"
 #include "dram_sched_i2a.h"
+#include "dram_sched_i3.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -147,6 +148,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_I2A:
       m_scheduler = new i2a_scheduler(m_config, this, stats);
       break;
+    case DRAM_I3:
+      m_scheduler = new i3_scheduler(m_config, this, stats);
+      break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
       assert(0);
@@ -197,6 +201,15 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   first_pim_insert_timestamp = 0;
   last_non_pim_finish_timestamp = 0;
   last_pim_finish_timestamp = 0;
+
+  // i = 10  ==>  max_phase_length = 5120K ~= 5M
+  for (int i = 0; i < 10; i++) {
+    phase_length.push_back(10000 * ((int) pow(2, i)));
+    num_total_phases.push_back(0);
+    num_unstable_phases.push_back(0);
+    phase_requests.push_back(0);
+    prev_phase_requests.push_back(0);
+  }
 }
 
 bool dram_t::full(bool is_write, bool is_pim) const {
@@ -302,10 +315,22 @@ void dram_t::push(class mem_fetch *data) {
     last_pim_req_insert_cycle = m_dram_cycle;
 
     n_pim++;
+
+    //warp_inst_t inst = data->get_inst();
+    //shd_warp_t *warp = inst.get_warp();
+    //printf("PIM WARP %d: IPC = %lf\n", inst.warp_id(), warp->get_ipc());
   } else {
     non_pim_req_arrival_latency.push_back(m_dram_cycle -
         last_non_pim_req_insert_cycle);
     last_non_pim_req_insert_cycle = m_dram_cycle;
+
+    for (int i = 0; i < phase_requests.size(); i++) {
+      phase_requests[i]++;
+    }
+
+    //warp_inst_t inst = data->get_inst();
+    //shd_warp_t *warp = inst.get_warp();
+    //printf("NON-PIM WARP %d: IPC = %lf\n", inst.warp_id(), warp->get_ipc());
   }
 
   // stats...
@@ -665,6 +690,26 @@ void dram_t::cycle() {
   for (unsigned j = 0; j < m_config->nbkgrp; j++) {
     DEC2ZERO(bkgrp[j]->CCDLc);
     DEC2ZERO(bkgrp[j]->RTPLc);
+  }
+
+  for (int i = 0; i < phase_length.size(); i++) {
+    if ((m_dram_cycle % phase_length[i]) == 0) {
+      num_total_phases[i]++;
+
+      if (prev_phase_requests[i] == 0) {
+        if (phase_requests[i] != 0) {
+          num_unstable_phases[i]++;
+        }
+      }
+      else if (((abs((long long int) (phase_requests[i] - \
+          prev_phase_requests[i])) / prev_phase_requests[i]) > 0.05) && \
+          (num_total_phases[i] > 1)) {
+        num_unstable_phases[i]++;
+      }
+
+      prev_phase_requests[i] = phase_requests[i];
+      phase_requests[i] = 0;
+    }
   }
 
 #ifdef DRAM_VISUALIZE
@@ -1092,6 +1137,12 @@ void dram_t::print(FILE *simFile) const {
   if (m_config->scheduler_type != DRAM_FIFO)
     fprintf(simFile, "mrqq: max=%d avg=%g\n", max_mrqs,
             (float)ave_mrqs / n_cmd);
+
+  printf("\nPhase statistics:\n");
+  for (int i = 0; i < phase_length.size(); i++) {
+    printf("%dK (total/unstable) = %llu / %llu\n", 10 * ((int) pow(2, i)),
+        num_total_phases[i], num_unstable_phases[i]);
+  }
 }
 
 void dram_t::visualize() const {

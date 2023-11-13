@@ -1,0 +1,57 @@
+#ifndef __DRAM_SCHED_I4B_NO_CAP__
+#define __DRAM_SCHED_I4B_NO_CAP__
+
+#include <list>
+#include <map>
+#include <math.h>
+#include "dram.h"
+#include "gpu-misc.h"
+#include "gpu-sim.h"
+#include "shader.h"
+
+#define I4B_NO_CAP_NON_PIM_ARR_RATE_TOLERANCE 0.05
+#define I4B_NO_CAP_MAX_PIM_BATCH_SIZE 64
+#define I4B_NO_CAP_MAX_INTERVAL_LENGTH 640000
+#define I4B_NO_CAP_MAX_INSTABILITY 5
+
+class i4b_no_cap_scheduler : public dram_scheduler {
+ public:
+  i4b_no_cap_scheduler(const memory_config *config, dram_t *dm,
+      memory_stats_t *stats);
+  void update_mode() override;
+  void add_req(dram_req_t *req) override;
+  dram_req_t *schedule(unsigned bank, unsigned curr_row) override;
+  dram_req_t *schedule_pim() override;
+
+  void end_exploratory_phase();
+
+ private:
+  std::vector<unsigned> m_num_non_pim_reqs;
+  std::vector<unsigned> m_max_non_pim_reqs;
+
+  std::vector<unsigned long long> m_non_pim_req_start_time;
+  std::vector<unsigned long long> m_non_pim_batch_dur;
+
+  unsigned m_last_pim_row;
+ 
+  unsigned long long m_pim_batch_start_time;
+  unsigned long long m_pim_batch_dur;
+
+  unsigned m_finished_pim_batches;
+  unsigned m_max_pim_batches;
+
+  bool m_stable_state;
+  unsigned long long m_next_update_cycle;
+  unsigned long long m_prev_update_cycle;
+  unsigned long long m_exploratory_phase_start_cycle;
+  
+  float m_stable_non_pim_arrival_rate;
+  float m_curr_non_pim_arrival_rate;
+  unsigned long long m_interval_length;
+  float m_instability;
+
+  float m_curr_non_pim_completion_rate;
+  std::vector<float> m_non_pim_completion_rate;
+};
+
+#endif

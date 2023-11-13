@@ -40,7 +40,7 @@ class dram_scheduler {
  public:
   dram_scheduler(const memory_config *config, dram_t *dm,
                    memory_stats_t *stats);
-  void add_req(dram_req_t *req);
+  virtual void add_req(dram_req_t *req);
   void data_collection(unsigned bank);
   bool is_next_req_hit(unsigned bank, unsigned curr_row,
       enum memory_mode mode);

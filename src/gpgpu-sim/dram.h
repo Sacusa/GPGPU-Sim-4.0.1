@@ -50,6 +50,7 @@
 #define BANK_ACTIVE 'A'
 
 //#define DRAM_VERIFY
+#define DRAM_SCHED_VERIFY
 
 enum memory_mode { READ_MODE = 0, WRITE_MODE, PIM_MODE };
 
@@ -273,8 +274,9 @@ class dram_t {
   std::vector<unsigned> phase_length;
   std::vector<unsigned long long> num_total_phases;
   std::vector<unsigned long long> num_unstable_phases;
+  std::vector<std::vector<float>> phase_arr_rate_percent_change;
   std::vector<unsigned long long> phase_requests;
-  std::vector<unsigned long long> prev_phase_requests;
+  std::vector<unsigned long long> stable_phase_requests;
 
   class memory_stats_t *m_stats;
   class Stats *mrqq_Dist;  // memory request queue inside DRAM
@@ -286,6 +288,12 @@ class dram_t {
   friend class i2_scheduler;
   friend class i2a_scheduler;
   friend class i3_scheduler;
+  friend class i3_timer_scheduler;
+  friend class i4a_scheduler;
+  friend class i4a_no_cap_scheduler;
+  friend class i4b_scheduler;
+  friend class i4b_no_cap_scheduler;
+  friend class hill_climbing_scheduler;
 };
 
 #endif /*DRAM_H*/

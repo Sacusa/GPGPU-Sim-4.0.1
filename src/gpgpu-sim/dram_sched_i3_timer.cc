@@ -1,17 +1,13 @@
 #include "dram_sched.h"
-#include "dram_sched_i3.h"
+#include "dram_sched_i3_timer.h"
 #include "../abstract_hardware_model.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-i3_scheduler::i3_scheduler(const memory_config *config, dram_t *dm,
+i3_timer_scheduler::i3_timer_scheduler(const memory_config *config, dram_t *dm,
     memory_stats_t *stats) : dram_scheduler(config, dm, stats) {
-  m_num_non_pim_reqs.assign(m_config->nbk, 0);
-  m_max_non_pim_reqs.assign(m_config->nbk, 0);
-
-  m_non_pim_req_start_time.assign(m_config->nbk, 0);
-  m_non_pim_batch_dur.assign(m_config->nbk, 0);
+  m_non_pim_to_pim_switch_cycle = 0;
 
   m_last_pim_row = 0;
 
@@ -22,7 +18,7 @@ i3_scheduler::i3_scheduler(const memory_config *config, dram_t *dm,
   prev_pim_num = 0;
 }
 
-void i3_scheduler::update_mode() {
+void i3_timer_scheduler::update_mode() {
   bool have_reads = false, have_writes = false;
 
   for (unsigned b = 0; b < m_config->nbk; b++) {
@@ -42,6 +38,7 @@ void i3_scheduler::update_mode() {
     if (is_batch_over) {
       unsigned long long batch_exec_time = m_dram->m_dram_cycle - \
                                            m_pim_batch_start_time;
+      m_pim_batch_start_time = 0;
       m_pim_batch_dur += batch_exec_time;
       m_pim_batch_exec_time.push_back(batch_exec_time);
 
@@ -55,21 +52,10 @@ void i3_scheduler::update_mode() {
       printf("           Batch size = %d\n", m_dram->pim_num - prev_pim_num);
 #endif
 
+      m_finished_batches++;
       prev_pim_num = m_dram->pim_num;
 
-      for (unsigned b = 0; b < m_config->nbk; b++) {
-        unsigned avg_req_latency;
-        if (m_num_non_pim_reqs[b] == 0) {
-          avg_req_latency = m_config->tCCDL;
-        } else {
-          avg_req_latency = m_non_pim_batch_dur[b] / m_num_non_pim_reqs[b];
-        }
-        m_max_non_pim_reqs[b] = (m_pim_batch_dur * \
-            (m_config->max_pim_slowdown - 1)) / avg_req_latency;
-      }
-
-      m_finished_batches++;
-      m_pim_batch_start_time = 0;
+      m_non_pim_to_pim_switch_cycle = m_dram->m_dram_cycle + m_pim_batch_dur;
     }
 
     if (((m_finished_batches >= m_config->min_pim_batches) || !have_pim) && \
@@ -79,14 +65,8 @@ void i3_scheduler::update_mode() {
       printf("           Executed %d PIM batches\n", m_finished_batches);
       printf("           PIM batch duration = %lld\n", m_pim_batch_dur);
 #endif
-      m_num_non_pim_reqs.assign(m_config->nbk, 0);
 
-      m_non_pim_req_start_time.assign(m_config->nbk, 0);
-      m_non_pim_batch_dur.assign(m_config->nbk, 0);
-
-      m_pim_batch_start_time = 0;
       m_pim_batch_dur = 0;
-
       m_finished_batches = 0;
 
       m_dram->mode = READ_MODE;
@@ -96,16 +76,8 @@ void i3_scheduler::update_mode() {
 
   else {
     if (have_pim) {
-      bool pim_threshold_exceeded = false;
-
-      for (unsigned b = 0; b < m_config->nbk; b++) {
-        if (m_num_non_pim_reqs[b] > m_max_non_pim_reqs[b]) {
-          pim_threshold_exceeded = true;
-          break;
-        }
-      }
-
-      if (pim_threshold_exceeded || !(have_reads || have_writes)) {
+      if ((m_dram->m_dram_cycle > m_non_pim_to_pim_switch_cycle) || \
+          !(have_reads || have_writes)) {
         m_dram->mode = PIM_MODE;
         m_dram->nonpim2pimswitches++;
 
@@ -119,25 +91,11 @@ void i3_scheduler::update_mode() {
   dram_scheduler::update_mode();
 }
 
-dram_req_t *i3_scheduler::schedule(unsigned bank, unsigned curr_row) {
-  dram_req_t *req = dram_scheduler::schedule(bank, curr_row);
-
-  if (m_non_pim_req_start_time[bank] > 0) {
-    m_non_pim_batch_dur[bank] += m_dram->m_dram_cycle -
-                                 m_non_pim_req_start_time[bank];
-    m_num_non_pim_reqs[bank]++;
-  }
-
-  if (req) {
-    m_non_pim_req_start_time[bank] = m_dram->m_dram_cycle;
-  } else {
-    m_non_pim_req_start_time[bank] = 0;
-  }
-
-  return req;
+dram_req_t *i3_timer_scheduler::schedule(unsigned bank, unsigned curr_row) {
+  return dram_scheduler::schedule(bank, curr_row);
 }
 
-dram_req_t *i3_scheduler::schedule_pim() {
+dram_req_t *i3_timer_scheduler::schedule_pim() {
   dram_req_t *req = dram_scheduler::schedule_pim();
 
   if (req) {

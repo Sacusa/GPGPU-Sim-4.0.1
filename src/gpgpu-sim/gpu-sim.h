@@ -67,7 +67,9 @@ class gpgpu_context;
 extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
 enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1, DRAM_GI = 2, DRAM_I1 = 3,
-                   DRAM_I2 = 4, DRAM_I2A = 5, DRAM_I3 = 6};
+                   DRAM_I2 = 4, DRAM_I2A = 5, DRAM_I3 = 6, DRAM_I4A = 7,
+                   DRAM_I4A_NO_CAP = 8, DRAM_I4B = 9, DRAM_HILL_CLIMBING = 10,
+                   DRAM_I3_TIMER = 11, DRAM_I4B_NO_CAP = 12};
 
 struct power_config {
   power_config() { m_valid = true; }
@@ -333,6 +335,8 @@ class memory_config {
   unsigned gpgpu_frfcfs_dram_pim_queue_size;
   unsigned pim_high_watermark;
   unsigned pim_low_watermark;
+  unsigned min_pim_batches;
+  float max_pim_slowdown;
 
   gpgpu_context *gpgpu_ctx;
 };

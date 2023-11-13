@@ -34,6 +34,12 @@
 #include "dram_sched_i2.h"
 #include "dram_sched_i2a.h"
 #include "dram_sched_i3.h"
+#include "dram_sched_i3_timer.h"
+#include "dram_sched_i4a.h"
+#include "dram_sched_i4a_no_cap.h"
+#include "dram_sched_i4b.h"
+#include "dram_sched_i4b_no_cap.h"
+#include "dram_sched_hill_climbing.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -151,6 +157,24 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_I3:
       m_scheduler = new i3_scheduler(m_config, this, stats);
       break;
+    case DRAM_I3_TIMER:
+      m_scheduler = new i3_timer_scheduler(m_config, this, stats);
+      break;
+    case DRAM_I4A:
+      m_scheduler = new i4a_scheduler(m_config, this, stats);
+      break;
+    case DRAM_I4A_NO_CAP:
+      m_scheduler = new i4a_no_cap_scheduler(m_config, this, stats);
+      break;
+    case DRAM_HILL_CLIMBING:
+      m_scheduler = new hill_climbing_scheduler(m_config, this, stats);
+      break;
+    case DRAM_I4B:
+      m_scheduler = new i4b_scheduler(m_config, this, stats);
+      break;
+    case DRAM_I4B_NO_CAP:
+      m_scheduler = new i4b_no_cap_scheduler(m_config, this, stats);
+      break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
       assert(0);
@@ -202,14 +226,16 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   last_non_pim_finish_timestamp = 0;
   last_pim_finish_timestamp = 0;
 
-  // i = 10  ==>  max_phase_length = 5120K ~= 5M
-  for (int i = 0; i < 10; i++) {
+  // num_phases = 10  ==>  max_phase_length = 5120K ~= 5M
+  int num_phases = 10;
+  for (int i = 0; i < num_phases; i++) {
     phase_length.push_back(10000 * ((int) pow(2, i)));
     num_total_phases.push_back(0);
     num_unstable_phases.push_back(0);
     phase_requests.push_back(0);
-    prev_phase_requests.push_back(0);
+    stable_phase_requests.push_back(0);
   }
+  phase_arr_rate_percent_change.resize(num_phases);
 }
 
 bool dram_t::full(bool is_write, bool is_pim) const {
@@ -310,8 +336,10 @@ void dram_t::push(class mem_fetch *data) {
   mrqq->push(mrq);
 
   if (data->is_pim()) {
-    pim_req_arrival_latency.push_back(m_dram_cycle -
-        last_pim_req_insert_cycle);
+    if (last_pim_req_insert_cycle > 0) {
+      pim_req_arrival_latency.push_back(m_dram_cycle -
+          last_pim_req_insert_cycle);
+    }
     last_pim_req_insert_cycle = m_dram_cycle;
 
     n_pim++;
@@ -320,8 +348,10 @@ void dram_t::push(class mem_fetch *data) {
     //shd_warp_t *warp = inst.get_warp();
     //printf("PIM WARP %d: IPC = %lf\n", inst.warp_id(), warp->get_ipc());
   } else {
-    non_pim_req_arrival_latency.push_back(m_dram_cycle -
-        last_non_pim_req_insert_cycle);
+    if (last_non_pim_req_insert_cycle > 0) {
+      non_pim_req_arrival_latency.push_back(m_dram_cycle -
+          last_non_pim_req_insert_cycle);
+    }
     last_non_pim_req_insert_cycle = m_dram_cycle;
 
     for (int i = 0; i < phase_requests.size(); i++) {
@@ -696,18 +726,31 @@ void dram_t::cycle() {
     if ((m_dram_cycle % phase_length[i]) == 0) {
       num_total_phases[i]++;
 
-      if (prev_phase_requests[i] == 0) {
-        if (phase_requests[i] != 0) {
-          num_unstable_phases[i]++;
-        }
-      }
-      else if (((abs((long long int) (phase_requests[i] - \
-          prev_phase_requests[i])) / prev_phase_requests[i]) > 0.05) && \
-          (num_total_phases[i] > 1)) {
-        num_unstable_phases[i]++;
+      if (num_total_phases[i] == 1) {
+        stable_phase_requests[i] = phase_requests[i];
       }
 
-      prev_phase_requests[i] = phase_requests[i];
+      else {
+        if (stable_phase_requests[i] == 0) {
+          if (phase_requests[i] != 0) {
+            num_unstable_phases[i]++;
+            stable_phase_requests[i] = phase_requests[i];
+          }
+        }
+        else {
+          float arr_rate_change = (float) abs((long long int)
+              (phase_requests[i] - stable_phase_requests[i])) / \
+            stable_phase_requests[i];
+
+          phase_arr_rate_percent_change[i].push_back(arr_rate_change);
+
+          if (arr_rate_change > 0.05) {
+            num_unstable_phases[i]++;
+            stable_phase_requests[i] = phase_requests[i];
+          }
+        }
+      }
+
       phase_requests[i] = 0;
     }
   }
@@ -1118,6 +1161,39 @@ void dram_t::print(FILE *simFile) const {
   printf("last_non_pim_finish = %llu\n", last_non_pim_finish_timestamp);
   printf("last_pim_finish = %llu\n", last_pim_finish_timestamp);
 
+  if ((m_config->scheduler_type == DRAM_I3) || \
+      (m_config->scheduler_type == DRAM_I3_TIMER)) {
+    i3_scheduler *sched = (i3_scheduler*) m_scheduler;
+    double sum = 0;
+    double mean = 0;
+    double sq = 0;
+    double stdev = 0;
+    double max = 0;
+    unsigned long long len = sched->m_pim_batch_exec_time.size();
+
+    if (len > 0) {
+      sum = std::accumulate(sched->m_pim_batch_exec_time.begin(),
+          sched->m_pim_batch_exec_time.end(), 0.0);
+      mean = sum / len;
+      sq = std::inner_product(sched->m_pim_batch_exec_time.begin(),
+          sched->m_pim_batch_exec_time.end(),
+          sched->m_pim_batch_exec_time.begin(), 0.0);
+      stdev = std::sqrt(sq / len - mean * mean);
+      max = *std::max_element(std::begin(sched->m_pim_batch_exec_time), 
+          std::end(sched->m_pim_batch_exec_time));
+    }
+
+    printf("\nAvgPimBatchExecTime = %.6f", mean);
+    printf("\nMaxPimBatchExecTime = %.6f", max);
+    printf("\nStDevPimBatchExecTime = %.6f", stdev);
+
+    double avg_batch_size = 0;
+    if (sched->m_finished_batches > 0) {
+      avg_batch_size = n_pim / sched->m_finished_batches;
+    }
+    printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
+  }
+
   printf("\nDual Bus Interface Util: \n");
   printf("issued_total_row = %llu \n", issued_total_row);
   printf("issued_total_col = %llu \n", issued_total_col);
@@ -1140,8 +1216,28 @@ void dram_t::print(FILE *simFile) const {
 
   printf("\nPhase statistics:\n");
   for (int i = 0; i < phase_length.size(); i++) {
-    printf("%dK (total/unstable) = %llu / %llu\n", 10 * ((int) pow(2, i)),
+    printf("%dK (total/unstable) = %llu / %llu", 10 * ((int) pow(2, i)),
         num_total_phases[i], num_unstable_phases[i]);
+
+    int size = phase_arr_rate_percent_change[i].size();
+    float min = -1, max = -1, median = -1;
+
+    if (size > 0) {
+      std::vector<float> arr_rate_change(phase_arr_rate_percent_change[i]);
+      std::sort(arr_rate_change.begin(), arr_rate_change.end());
+
+      min = *(arr_rate_change.begin());
+      max = *(arr_rate_change.end() - 1);
+      if (size % 2 == 0) {
+        median = (arr_rate_change[size / 2] + \
+            arr_rate_change[(size / 2) - 1]) / 2;
+      } else {
+        median = arr_rate_change[(size - 1) / 2];
+      }
+    }
+
+    printf("; arr_rate_change (min/median/max) = %f / %f / %f\n", min,
+        median, max);
   }
 }
 

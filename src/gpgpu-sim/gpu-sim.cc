@@ -219,6 +219,10 @@ void memory_config::reg_options(class OptionParser *opp) {
 
   option_parser_register(opp, "-dram_pim_queue_size", OPT_CSTR,
                          &pim_queue_size_opt, "PIM_Queue_Size", "32:28:16");
+  option_parser_register(opp, "-dram_min_pim_batches", OPT_UINT32,
+          &min_pim_batches, "PIM_Batches", "1");
+  option_parser_register(opp, "-dram_max_pim_slowdown", OPT_FLOAT,
+          &max_pim_slowdown, "Max_PIM_Slowdown", "2");
 
   m_address_mapping.addrdec_setoption(opp);
 }

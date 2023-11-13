@@ -46,7 +46,8 @@ void i2a_scheduler::update_mode() {
         } else {
           avg_req_latency = m_non_pim_batch_dur[b] / m_num_non_pim_reqs[b];
         }
-        m_max_non_pim_reqs[b] = (m_pim_batch_dur * 2) / avg_req_latency;
+        m_max_non_pim_reqs[b] = (m_pim_batch_dur * \
+            (m_config->max_pim_slowdown - 1)) / avg_req_latency;
       }
     }
 
@@ -67,7 +68,7 @@ void i2a_scheduler::update_mode() {
 
       m_dram->mode = READ_MODE;
       m_dram->pim2nonpimswitches++;
-#ifdef DRAM_VERIFY
+#ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to non-PIM mode\n");
 #endif
     }
@@ -88,7 +89,7 @@ void i2a_scheduler::update_mode() {
         m_dram->mode = PIM_MODE;
         m_dram->nonpim2pimswitches++;
 
-#ifdef DRAM_VERIFY
+#ifdef DRAM_SCHED_VERIFY
         printf("DRAM: Switching to PIM mode\n");
 #endif
       }

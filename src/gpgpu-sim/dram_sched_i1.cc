@@ -43,7 +43,8 @@ void i1_scheduler::update_mode() {
         m_pim_curr_transaction_start_time;
       m_pim_curr_transaction_start_time = 0;
 
-      m_max_req_per_bank = (m_pim_last_transaction_dur * 2) / m_config->tRC;
+      m_max_req_per_bank = (m_pim_last_transaction_dur * \
+          (m_config->max_pim_slowdown - 1)) / m_config->tRC;
 
       m_is_last_pim_store = false;
 
@@ -51,7 +52,7 @@ void i1_scheduler::update_mode() {
         m_dram->mode = READ_MODE;
         m_dram->pim2nonpimswitches++;
 
-#ifdef DRAM_VERIFY
+#ifdef DRAM_SCHED_VERIFY
         printf("DRAM: Switching to non-PIM mode\n");
 #endif
       }
@@ -73,7 +74,7 @@ void i1_scheduler::update_mode() {
       m_dram->mode = PIM_MODE;
       m_dram->nonpim2pimswitches++;
 
-#ifdef DRAM_VERIFY
+#ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to PIM mode\n");
 #endif
     }

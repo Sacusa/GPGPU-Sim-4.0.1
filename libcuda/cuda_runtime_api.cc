@@ -2641,12 +2641,18 @@ __host__ cudaError_t CUDARTAPI cudaDeviceGetLimit(size_t *pValue,
   return cudaDeviceGetLimitInternal(pValue, limit);
 }
 
+// Reusing this function to wait for the stream operations to launch.
+//
+// I use this to ensure PIM kernels launch before non-PIM kernels do.
 __host__ cudaError_t CUDARTAPI cudaStreamGetPriority(cudaStream_t hStream,
                                                      int *priority) {
   if (g_debug_execution >= 3) {
     announce_call(__my_func__);
   }
-  cuda_not_implemented(__my_func__, __LINE__);
+  printf("GPGPU-Sim API: Waiting for stream %d to launch an operation\n",
+          hStream->get_uid());
+  fflush(stdout);
+  while (!hStream->busy());
   return g_last_cudaError = cudaSuccess;
 }
 

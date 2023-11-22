@@ -9,6 +9,7 @@ pim_frfcfs_scheduler::pim_frfcfs_scheduler(const memory_config *config,
     dram_t *dm, memory_stats_t *stats) : dram_scheduler(config, dm, stats) {
   m_pim_queue_it =
       new std::list<std::list<dram_req_t *>::iterator>[m_config->nbk];
+  m_last_pim_row = 0;
   m_promotion_count.resize(m_config->nbk, 0);
 }
 
@@ -41,38 +42,6 @@ void pim_frfcfs_scheduler::add_req(dram_req_t *req) {
                                               m_dram->m_gpu->gpu_tot_sim_cycle;
     }
   }
-}
-
-bool pim_frfcfs_scheduler::is_next_req_pim(unsigned bank, unsigned curr_row) {
-  std::list<dram_req_t *> *m_current_queue = m_queue;
-  std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >
-      *m_current_bins = m_bins;
-  std::list<std::list<dram_req_t *>::iterator> **m_current_last_row =
-      m_last_row;
-
-  dram_req_t *req;  // next request
-
-  if (m_current_last_row[bank] == NULL) {
-    if (m_current_queue[bank].empty()) return false;
-
-    std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >::iterator
-        bin_ptr = m_current_bins[bank].find(curr_row);
-
-    if (bin_ptr == m_current_bins[bank].end()) {
-      req = m_current_queue[bank].back();
-    }
-    else {
-      std::list<dram_req_t *>::iterator next = (&(bin_ptr->second))->back();
-      req = (*next);
-    }
-  }
-
-  else {
-    std::list<dram_req_t *>::iterator next = m_current_last_row[bank]->back();
-    req = (*next);
-  }
-    
-  return req->data->is_pim();
 }
 
 void pim_frfcfs_scheduler::update_mode() {
@@ -126,10 +95,6 @@ void pim_frfcfs_scheduler::update_mode() {
           switch_to_pim = switch_to_pim && (m_last_row[b] == NULL) && \
                           !m_queue[b].empty() && \
                           m_queue[b].back()->data->is_pim();
-          //if (!is_next_req_pim(b, m_dram->bk[b]->curr_row)) {
-          //  switch_to_pim = false;
-          //  break;
-          //}
         }
 
         // 3) Every bank has a row buffer miss and PIM is the oldest request

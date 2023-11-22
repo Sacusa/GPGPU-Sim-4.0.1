@@ -23,8 +23,6 @@ class pim_frfcfs_scheduler : public dram_scheduler {
   unsigned m_last_pim_row;
 
   std::vector<unsigned> m_promotion_count;
-
-  bool is_next_req_pim(unsigned bank, unsigned curr_row);
 };
 
 #endif

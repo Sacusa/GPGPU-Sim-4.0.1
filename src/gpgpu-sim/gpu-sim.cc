@@ -214,6 +214,8 @@ void memory_config::reg_options(class OptionParser *opp) {
   option_parser_register(
       opp, "-dram_elimnate_rw_turnaround", OPT_BOOL, &elimnate_rw_turnaround,
       "elimnate_rw_turnaround i.e set tWTR and tRTW = 0", "0");
+  option_parser_register(opp, "-frfcfs_cap", OPT_UINT32, &frfcfs_cap,
+      "FRFCFS Cap", "0");
   option_parser_register(opp, "-icnt_flit_size", OPT_UINT32, &icnt_flit_size,
                          "icnt_flit_size", "32");
 

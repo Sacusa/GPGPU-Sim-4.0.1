@@ -58,7 +58,7 @@ dram_scheduler::dram_scheduler(const memory_config *config, dram_t *dm,
   if (m_config->seperate_write_queue_enabled) {
     m_write_queue = new std::list<dram_req_t *>[m_config->nbk];
     m_write_bins = new std::map<
-        unsigned, std::list<std::list<dram_req_t *>::iterator> >[m_config->nbk];
+        unsigned, std::list<std::list<dram_req_t *>::iterator>>[m_config->nbk];
     m_last_write_row =
         new std::list<std::list<dram_req_t *>::iterator> *[m_config->nbk];
 
@@ -268,23 +268,18 @@ dram_req_t *dram_scheduler::schedule_pim() {
   m_dram->access_num++;
   m_dram->pim_num++;
 
-  bool rowhit = true;
-
   for (unsigned int b = 0; b < m_config->nbk; b++) {
-    bool bank_rowhit = m_dram->bk[b]->curr_row == req->row;
-    rowhit = rowhit && bank_rowhit;
+    bool rowhit = m_dram->bk[b]->curr_row == req->row;
 
-    if (!bank_rowhit) {
+    if (rowhit) {
+      m_dram->hits_num++;
+      m_dram->hits_pim_num++;
+    } else {
       data_collection(b);
     }
 
     m_stats->concurrent_row_access[m_dram->id][b]++;
     m_stats->row_access[m_dram->id][b]++;
-  }
-
-  if (rowhit) {
-    m_dram->hits_num++;
-    m_dram->hits_pim_num++;
   }
 
   return req;

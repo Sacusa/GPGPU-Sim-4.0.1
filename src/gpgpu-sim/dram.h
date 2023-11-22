@@ -294,6 +294,7 @@ class dram_t {
   friend class i4b_scheduler;
   friend class i4b_no_cap_scheduler;
   friend class hill_climbing_scheduler;
+  friend class pim_frfcfs_scheduler;
 };
 
 #endif /*DRAM_H*/

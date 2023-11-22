@@ -40,6 +40,7 @@
 #include "dram_sched_i4b.h"
 #include "dram_sched_i4b_no_cap.h"
 #include "dram_sched_hill_climbing.h"
+#include "dram_sched_pim_frfcfs.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -175,6 +176,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_I4B_NO_CAP:
       m_scheduler = new i4b_no_cap_scheduler(m_config, this, stats);
       break;
+    case DRAM_PIM_FRFCFS:
+      m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
+      break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
       assert(0);
@@ -241,7 +245,16 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
 bool dram_t::full(bool is_write, bool is_pim) const {
   if (m_config->scheduler_type == DRAM_FIFO) {
     return mrqq->full();
-  } else {
+  }
+
+  else if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
+    if (m_config->gpgpu_frfcfs_dram_sched_queue_size == 0) return false;
+
+    return m_scheduler->num_pending() >=
+           m_config->gpgpu_frfcfs_dram_sched_queue_size;
+  }
+
+  else {
     if (m_config->gpgpu_frfcfs_dram_sched_queue_size == 0) return false;
 
     if (is_pim) {

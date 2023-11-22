@@ -42,6 +42,7 @@
 #include "dram_sched_hill_climbing.h"
 #include "dram_sched_pim_frfcfs.h"
 #include "dram_sched_pim_first.h"
+#include "dram_sched_bliss.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -183,6 +184,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
       break;
+    case DRAM_BLISS:
+      m_scheduler = new bliss_scheduler(m_config, this, stats);
+      break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
       assert(0);
@@ -251,7 +255,8 @@ bool dram_t::full(bool is_write, bool is_pim) const {
     return mrqq->full();
   }
 
-  else if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
+  else if ((m_config->scheduler_type == DRAM_PIM_FRFCFS) || \
+           (m_config->scheduler_type == DRAM_BLISS)) {
     if (m_config->gpgpu_frfcfs_dram_sched_queue_size == 0) return false;
 
     return m_scheduler->num_pending() >=

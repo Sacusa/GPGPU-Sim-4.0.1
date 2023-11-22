@@ -296,6 +296,7 @@ class dram_t {
   friend class hill_climbing_scheduler;
   friend class pim_frfcfs_scheduler;
   friend class pim_first_scheduler;
+  friend class bliss_scheduler;
 };
 
 #endif /*DRAM_H*/

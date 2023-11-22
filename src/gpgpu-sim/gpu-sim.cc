@@ -220,11 +220,16 @@ void memory_config::reg_options(class OptionParser *opp) {
                          "icnt_flit_size", "32");
 
   option_parser_register(opp, "-dram_pim_queue_size", OPT_CSTR,
-                         &pim_queue_size_opt, "PIM_Queue_Size", "32:28:16");
+      &pim_queue_size_opt, "PIM_Queue_Size", "32:28:16");
   option_parser_register(opp, "-dram_min_pim_batches", OPT_UINT32,
-          &min_pim_batches, "PIM_Batches", "1");
+      &min_pim_batches, "PIM_Batches", "1");
   option_parser_register(opp, "-dram_max_pim_slowdown", OPT_FLOAT,
-          &max_pim_slowdown, "Max_PIM_Slowdown", "2");
+      &max_pim_slowdown, "Max_PIM_Slowdown", "2");
+
+  option_parser_register(opp, "-bliss_clearing_interval", OPT_UINT32,
+      &bliss_clearing_interval, "BLISS Clearing Interval", "10000");
+  option_parser_register(opp, "-bliss_blacklisting_threshold", OPT_UINT32,
+      &bliss_blacklisting_threshold, "BLISS Blacklisting Threshold", "4");
 
   m_address_mapping.addrdec_setoption(opp);
 }

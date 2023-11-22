@@ -1,19 +1,24 @@
 #include "dram_sched.h"
-#include "dram_sched_pim_frfcfs.h"
+#include "dram_sched_bliss.h"
 #include "../abstract_hardware_model.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-pim_frfcfs_scheduler::pim_frfcfs_scheduler(const memory_config *config,
+bliss_scheduler::bliss_scheduler(const memory_config *config,
     dram_t *dm, memory_stats_t *stats) : dram_scheduler(config, dm, stats) {
   m_pim_queue_it =
       new std::list<std::list<dram_req_t *>::iterator>[m_config->nbk];
   m_last_pim_row = 0;
-  m_promotion_count.resize(m_config->nbk, 0);
+
+  m_requests_served = 0;
+  m_prev_request_type = REQ_NONE;
+
+  is_pim_blacklisted = false;
+  is_mem_blacklisted = false;
 }
 
-void pim_frfcfs_scheduler::add_req(dram_req_t *req) {
+void bliss_scheduler::add_req(dram_req_t *req) {
   assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
   m_num_pending++;
 
@@ -44,26 +49,30 @@ void pim_frfcfs_scheduler::add_req(dram_req_t *req) {
   }
 }
 
-void pim_frfcfs_scheduler::update_mode() {
+void bliss_scheduler::update_mode() {
   unsigned num_mem_pending = m_num_pending - m_num_pim_pending;
   enum memory_mode prev_mode = m_dram->mode;
 
-  bool frfcfs_cap_exceeded = false;
-  for (unsigned b = 0; b < m_config->nbk; b++) {
-    if (m_promotion_count[b] >= m_config->frfcfs_cap) {
-      frfcfs_cap_exceeded = true;
-      break;
-    }
+  if ((m_dram->m_dram_cycle % m_config->bliss_clearing_interval) == 0) {
+    m_requests_served = 0;
+    m_prev_request_type = REQ_NONE;
+    is_pim_blacklisted = false;
+    is_mem_blacklisted = false;
+
+#ifdef DRAM_SCHED_VERIFY
+    printf("DRAM (%d): Reached clearing interval\n", m_dram->id);
+#endif
   }
 
-  // Switch to MEM mode if
-  if (m_dram->mode == PIM_MODE) {
-    if ((m_config->frfcfs_cap > 0) && frfcfs_cap_exceeded) {
-      // 1) MEM requests have been waiting too long, or
-      m_dram->mode = READ_MODE;
-    } else {
+  if (is_pim_blacklisted == is_mem_blacklisted) {
+    /******************
+     * FR-FCFS policy *
+     ******************/
+
+    // Switch to MEM mode if
+    if (m_dram->mode == PIM_MODE) {
       if (m_num_pim_pending == 0) {
-        // 2) There are no more PIM requests and there are MEM requests, or
+        // 1) There are no more PIM requests and there are MEM requests, or
         if (num_mem_pending > 0) {
           m_dram->mode = READ_MODE;
         }
@@ -72,23 +81,18 @@ void pim_frfcfs_scheduler::update_mode() {
         if (req->row != m_last_pim_row) {
           for (unsigned b = 0; b < m_config->nbk; b++) {
             if (!m_queue[b].empty() && !m_queue[b].back()->data->is_pim()) {
-              // 3) PIM has row buffer miss and the oldest request is MEM
+              // 2) PIM has row buffer miss and the oldest request is MEM
               m_dram->mode = READ_MODE;
             }
           }
         }
       }
     }
-  }
 
-  // Switch to PIM mode if
-  else {
-    if ((m_config->frfcfs_cap > 0) && frfcfs_cap_exceeded) {
-      // 1) PIM requests have been waiting too long, or
-      m_dram->mode = PIM_MODE;
-    } else {
+    // Switch to PIM mode if
+    else {
       if (num_mem_pending == 0) {
-        // 2) There are no more MEM requests and there are PIM requests, or
+        // 1) There are no more MEM requests and there are PIM requests, or
         if (m_num_pim_pending > 0) {
           m_dram->mode = PIM_MODE;
         }
@@ -101,31 +105,39 @@ void pim_frfcfs_scheduler::update_mode() {
                           m_queue[b].back()->data->is_pim();
         }
 
-        // 3) Every bank has a row buffer miss and PIM is the oldest request
+        // 2) Every bank has a row buffer miss and PIM is the oldest request
         if (switch_to_pim) { m_dram->mode = PIM_MODE; }
       }
     }
   }
 
-  if (m_dram->mode != prev_mode) {
-    std::fill(m_promotion_count.begin(), m_promotion_count.end(), 0);
+  else if (is_pim_blacklisted) {
+    if (num_mem_pending > 0) { m_dram->mode = READ_MODE; }
+    else                     { m_dram->mode = PIM_MODE; }
+  }
 
+  else {
+    if (m_num_pim_pending > 0) { m_dram->mode = PIM_MODE; }
+    else                       { m_dram->mode = READ_MODE; }
+  }
+
+  if (m_dram->mode != prev_mode) {
     if (prev_mode == PIM_MODE) {
       m_dram->pim2nonpimswitches++;
 #ifdef DRAM_SCHED_VERIFY
-      printf("DRAM: Switching to non-PIM mode\n");
+      printf("DRAM (%d): Switching to non-PIM mode\n", m_dram->id);
 #endif
     } else {
       m_dram->nonpim2pimswitches++;
       m_last_pim_row = 0;
 #ifdef DRAM_SCHED_VERIFY
-      printf("DRAM: Switching to PIM mode\n");
+      printf("DRAM (%d): Switching to PIM mode\n", m_dram->id);
 #endif
     }
   }
 }
 
-dram_req_t *pim_frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
+dram_req_t *bliss_scheduler::schedule(unsigned bank, unsigned curr_row) {
   bool rowhit = true;
   std::list<dram_req_t *> *m_current_queue = m_queue;
   std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >
@@ -157,13 +169,7 @@ dram_req_t *pim_frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   std::list<dram_req_t *>::iterator next = m_current_last_row[bank]->back();
   dram_req_t *req = (*next);
 
-  if (!m_current_queue[bank].empty() && \
-      (*m_current_queue[bank].back()).data->is_pim()) {
-    // a row buffer hit was just favored over a PIM request
-    m_promotion_count[bank]++;
-  }
-
-  if (m_current_queue[bank].back()->data->is_pim()) {m_promotion_count[bank]++;}
+  update_blacklist(REQ_MEM);
 
   // rowblp stats
   m_dram->access_num++;
@@ -202,7 +208,7 @@ dram_req_t *pim_frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   return req;
 }
 
-dram_req_t *pim_frfcfs_scheduler::schedule_pim() {
+dram_req_t *bliss_scheduler::schedule_pim() {
   std::list<dram_req_t *> *m_current_queue = m_queue;
   std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >
       *m_current_bins = m_bins;
@@ -213,17 +219,13 @@ dram_req_t *pim_frfcfs_scheduler::schedule_pim() {
 
   dram_req_t *req = *(m_pim_queue_it[0].back());
 
+  update_blacklist(REQ_PIM);
+
   for (unsigned int bank = 0; bank < m_config->nbk; bank++) {
     unsigned curr_row = m_dram->bk[bank]->curr_row;
 
     std::list<dram_req_t *>::iterator next = m_pim_queue_it[bank].back();
     dram_req_t *bank_req = *(next);
-
-    if (!m_current_queue[bank].empty() && \
-        !((*m_current_queue[bank].back()).data->is_pim())) {
-      // a PIM request was just favored over an older MEM request
-      m_promotion_count[bank]++;
-    }
 
     // TODO: remove this
     assert(req == bank_req);
@@ -259,4 +261,40 @@ dram_req_t *pim_frfcfs_scheduler::schedule_pim() {
   m_num_pim_pending--;
 
   return req;
+}
+
+void bliss_scheduler::update_blacklist(request_type req_type)
+{
+  if (m_prev_request_type == req_type) {
+    m_requests_served++;
+  } else {
+    m_requests_served = 0;
+  }
+
+  m_prev_request_type = req_type;
+
+  if (m_requests_served > m_config->bliss_blacklisting_threshold) {
+    switch (req_type) {
+      case REQ_MEM: {
+#ifdef DRAM_SCHED_VERIFY
+        if (!is_mem_blacklisted) {
+          printf("DRAM (%d): Blacklisting MEM\n", m_dram->id);
+        }
+#endif
+        is_mem_blacklisted = true;
+        break;
+      }
+      case REQ_PIM: {
+#ifdef DRAM_SCHED_VERIFY
+        if (!is_pim_blacklisted) {
+          printf("DRAM (%d): Blacklisting PIM\n", m_dram->id);
+        }
+#endif
+        is_pim_blacklisted = true;
+        break;
+      }
+    }
+
+    m_requests_served = 0;
+  }
 }

@@ -233,7 +233,7 @@ void stream_operation::print(FILE *fp) const {
 
 stream_manager::stream_manager(gpgpu_sim *gpu, bool cuda_launch_blocking) {
   m_gpu = gpu;
-  m_service_stream_zero = false;
+  m_stream_zero_serviced_last = false;
   m_cuda_launch_blocking = cuda_launch_blocking;
   pthread_mutex_init(&m_lock, NULL);
   m_last_stream = m_streams.begin();
@@ -319,42 +319,47 @@ void stream_manager::stop_all_running_kernels() {
 stream_operation stream_manager::front() {
   // called by gpu simulation thread
   stream_operation result;
-  //    if( concurrent_streams_empty() )
-  m_service_stream_zero = true;
-  if (m_service_stream_zero) {
-    if (!m_stream_zero.empty() && !m_stream_zero.busy()) {
-      result = m_stream_zero.next();
-      if (result.is_kernel()) {
-        unsigned grid_id = result.get_kernel()->get_uid();
-        m_grid_id_to_stream[grid_id] = &m_stream_zero;
-      }
-    } else {
-      m_service_stream_zero = false;
-    }
+  
+  std::list<struct CUstream_st *>::iterator s;
+  if (m_stream_zero_serviced_last) {
+    s = m_streams.begin();
+  } else {
+    s = m_last_stream;
+    s++;
   }
-  if (!m_service_stream_zero) {
-    std::list<struct CUstream_st *>::iterator s = m_last_stream;
-    if (m_last_stream == m_streams.end()) {
-      s = m_streams.begin();
-    } else {
-      s++;
-    }
-    for (size_t ii = 0; ii < m_streams.size(); ii++, s++) {
-      if (s == m_streams.end()) {
-        s = m_streams.begin();
-      }
-      m_last_stream = s;
-      CUstream_st *stream = *s;
-      if (!stream->busy() && !stream->empty()) {
-        result = stream->next();
+
+  m_stream_zero_serviced_last = false;
+
+  for (size_t ii = 0; ii < m_streams.size(); ii++, s++) {
+    if (s == m_streams.end()) {
+      if (!m_stream_zero.empty() && !m_stream_zero.busy()) {
+        result = m_stream_zero.next();
         if (result.is_kernel()) {
           unsigned grid_id = result.get_kernel()->get_uid();
-          m_grid_id_to_stream[grid_id] = stream;
+          m_grid_id_to_stream[grid_id] = &m_stream_zero;
         }
+
+        m_stream_zero_serviced_last = true;
         break;
       }
+
+      else {
+        s = m_streams.begin();
+      }
+    }
+
+    m_last_stream = s;
+    CUstream_st *stream = *s;
+    if (!stream->busy() && !stream->empty()) {
+      result = stream->next();
+      if (result.is_kernel()) {
+        unsigned grid_id = result.get_kernel()->get_uid();
+        m_grid_id_to_stream[grid_id] = stream;
+      }
+      break;
     }
   }
+
   return result;
 }
 
@@ -434,7 +439,7 @@ void stream_manager::push(stream_operation op) {
 
   // block if stream 0 (or concurrency disabled) and pending concurrent
   // operations exist
-  bool block = !stream || m_cuda_launch_blocking;
+  bool block = m_cuda_launch_blocking;
   while (block) {
     pthread_mutex_lock(&m_lock);
     block = !concurrent_streams_empty();
@@ -445,7 +450,7 @@ void stream_manager::push(stream_operation op) {
   if (!m_gpu->cycle_insn_cta_max_hit()) {
     // Accept the stream operation if the maximum cycle/instruction/cta counts
     // are not triggered
-    if (stream && !m_cuda_launch_blocking) {
+    if (stream) {
       stream->push(op);
     } else {
       op.set_stream(&m_stream_zero);
@@ -461,10 +466,23 @@ void stream_manager::push(stream_operation op) {
   }
   if (g_debug_execution >= 3) print_impl(stdout);
   pthread_mutex_unlock(&m_lock);
-  if (m_cuda_launch_blocking || stream == NULL) {
+
+  if (m_cuda_launch_blocking) {
     unsigned int wait_amount = 100;
     unsigned int wait_cap = 100000;  // 100ms
     while (!empty()) {
+      // sleep to prevent CPU hog by empty spin
+      // sleep time increased exponentially ensure fast response when needed
+      usleep(wait_amount);
+      wait_amount *= 2;
+      if (wait_amount > wait_cap) wait_amount = wait_cap;
+    }
+  }
+
+  if (!stream) {
+    unsigned int wait_amount = 100;
+    unsigned int wait_cap = 100000;  // 100ms
+    while (!m_stream_zero.empty()) {
       // sleep to prevent CPU hog by empty spin
       // sleep time increased exponentially ensure fast response when needed
       usleep(wait_amount);

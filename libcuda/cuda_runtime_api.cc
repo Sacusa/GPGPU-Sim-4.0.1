@@ -2060,7 +2060,8 @@ __host__ cudaError_t CUDARTAPI cudaStreamSynchronizeInternal(
   }
 #if (CUDART_VERSION >= 3000)
   if (stream == NULL) {
-      ctx->synchronize();
+      //ctx->synchronize();
+      (ctx->the_gpgpusim->g_stream_manager->get_stream_zero())->synchronize();
   } else {
       stream->synchronize();
   }

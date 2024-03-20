@@ -265,6 +265,7 @@ class stream_manager {
   void stop_all_running_kernels();
   unsigned size() { return m_streams.size(); };
   bool is_blocking() { return m_cuda_launch_blocking; };
+  CUstream_st *get_stream_zero() { return &m_stream_zero; }
 
  private:
   void print_impl(FILE *fp);
@@ -274,7 +275,7 @@ class stream_manager {
   std::list<CUstream_st *> m_streams;
   std::map<unsigned, CUstream_st *> m_grid_id_to_stream;
   CUstream_st m_stream_zero;
-  bool m_service_stream_zero;
+  bool m_stream_zero_serviced_last;
   pthread_mutex_t m_lock;
   std::list<struct CUstream_st *>::iterator m_last_stream;
 };

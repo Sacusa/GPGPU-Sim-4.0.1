@@ -231,6 +231,16 @@ void memory_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-bliss_blacklisting_threshold", OPT_UINT32,
       &bliss_blacklisting_threshold, "BLISS Blacklisting Threshold", "4");
 
+  option_parser_register(opp, "-dram_sched_queue_mem_time_ratio_high",
+      OPT_FLOAT, &dram_sched_queue_mem_time_ratio_high,
+      "DRAM Queue scheduler mem_time_ratio upper limit", "3");
+  option_parser_register(opp, "-dram_sched_queue_mem_time_ratio_low",
+      OPT_FLOAT, &dram_sched_queue_mem_time_ratio_low,
+      "DRAM Queue scheduler mem_time_ratio lower limit", "0.5");
+  option_parser_register(opp, "-dram_sched_queue_max_pim_batches",
+      OPT_UINT32, &dram_sched_queue_max_pim_batches,
+      "DRAM Queue scheduler num_pim_batches upper limit", "8");
+
   m_address_mapping.addrdec_setoption(opp);
 }
 
@@ -815,6 +825,8 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
     }
   }
   assert(k != m_running_kernels.end());
+
+  gpu_print_stat(uid);
 }
 
 void gpgpu_sim::stop_all_running_kernels() {
@@ -1079,7 +1091,7 @@ void gpgpu_sim::update_stats() {
 
 void gpgpu_sim::print_stats() {
   gpgpu_ctx->stats->ptx_file_line_stats_write_file();
-  gpu_print_stat();
+  gpu_print_stat(0);
 
   if (g_network_mode) {
     printf(
@@ -1140,19 +1152,32 @@ void gpgpu_sim::deadlock_check() {
 
 /// printing the names and uids of a set of executed kernels (usually there is
 /// only one)
-std::string gpgpu_sim::executed_kernel_info_string() {
+std::string gpgpu_sim::executed_kernel_info_string(unsigned int kernel_uid) {
   std::stringstream statout;
 
-  statout << "kernel_name = ";
-  for (unsigned int k = 0; k < m_executed_kernel_names.size(); k++) {
-    statout << m_executed_kernel_names[k] << " ";
+  if (kernel_uid == 0) {
+    statout << "kernel_name = ";
+    for (unsigned int k = 0; k < m_executed_kernel_names.size(); k++) {
+      statout << m_executed_kernel_names[k] << " ";
+    }
+    statout << std::endl;
+    statout << "kernel_launch_uid = ";
+    for (unsigned int k = 0; k < m_executed_kernel_uids.size(); k++) {
+      statout << m_executed_kernel_uids[k] << " ";
+    }
+    statout << std::endl;
   }
-  statout << std::endl;
-  statout << "kernel_launch_uid = ";
-  for (unsigned int k = 0; k < m_executed_kernel_uids.size(); k++) {
-    statout << m_executed_kernel_uids[k] << " ";
+
+  else {
+    for (unsigned int k = 0; k < m_executed_kernel_uids.size(); k++) {
+      if (m_executed_kernel_uids[k] == kernel_uid) {
+        statout << "kernel_name = " << m_executed_kernel_names[k] << std::endl;
+        statout << "kernel_launch_uid = " << m_executed_kernel_uids[k] << \
+          std::endl;
+        break;
+      }
+    }
   }
-  statout << std::endl;
 
   return statout.str();
 }
@@ -1246,14 +1271,26 @@ void gpgpu_sim::change_cache_config(FuncCache cache_config) {
   }
 }
 
-void gpgpu_sim::clear_executed_kernel_info() {
-  m_executed_kernel_names.clear();
-  m_executed_kernel_uids.clear();
+void gpgpu_sim::clear_executed_kernel_info(unsigned int kernel_uid) {
+  if (kernel_uid == 0) {
+    m_executed_kernel_names.clear();
+    m_executed_kernel_uids.clear();
+  }
+
+  else {
+    for (unsigned int k = 0; k < m_executed_kernel_uids.size(); k++) {
+      if (m_executed_kernel_uids[k] == kernel_uid) {
+        m_executed_kernel_names.erase(m_executed_kernel_names.begin() + k);
+        m_executed_kernel_uids.erase(m_executed_kernel_uids.begin() + k);
+        break;
+      }
+    }
+  }
 }
-void gpgpu_sim::gpu_print_stat() {
+void gpgpu_sim::gpu_print_stat(unsigned int kernel_uid) {
   FILE *statfout = stdout;
 
-  std::string kernel_info_str = executed_kernel_info_string();
+  std::string kernel_info_str = executed_kernel_info_string(kernel_uid);
   fprintf(statfout, "%s", kernel_info_str.c_str());
 
   printf("gpu_sim_cycle = %lld\n", gpu_sim_cycle);
@@ -1425,7 +1462,7 @@ void gpgpu_sim::gpu_print_stat() {
   time_vector_print();
   fflush(stdout);
 
-  clear_executed_kernel_info();
+  clear_executed_kernel_info(kernel_uid);
 }
 
 // performance counter that are not local to one shader

@@ -11,6 +11,8 @@ pim_frfcfs_scheduler::pim_frfcfs_scheduler(const memory_config *config,
       new std::list<std::list<dram_req_t *>::iterator>[m_config->nbk];
   m_last_pim_row = 0;
   m_promotion_count.resize(m_config->nbk, 0);
+
+  m_bank_stall_time.resize(m_config->nbk, 0);
 }
 
 void pim_frfcfs_scheduler::add_req(dram_req_t *req) {
@@ -94,15 +96,24 @@ void pim_frfcfs_scheduler::update_mode() {
         }
       } else {
         bool switch_to_pim = true;
+        std::vector<bool> switch_to_pim_bank;
 
         for (unsigned b = 0; b < m_config->nbk; b++) {
-          switch_to_pim = switch_to_pim && (m_last_row[b] == NULL) && \
-                          !m_queue[b].empty() && \
-                          m_queue[b].back()->data->is_pim();
+          bool can_bank_switch = (m_last_row[b] == NULL) && \
+                                 !m_queue[b].empty() && \
+                                 m_queue[b].back()->data->is_pim();
+
+          switch_to_pim = switch_to_pim && can_bank_switch;
+          switch_to_pim_bank.push_back(can_bank_switch);
         }
 
         // 3) Every bank has a row buffer miss and PIM is the oldest request
         if (switch_to_pim) { m_dram->mode = PIM_MODE; }
+        else {
+          for (unsigned b = 0; b < m_config->nbk; b++) {
+            if (switch_to_pim_bank[b]) { m_bank_stall_time[b]++; }
+          }
+        }
       }
     }
   }

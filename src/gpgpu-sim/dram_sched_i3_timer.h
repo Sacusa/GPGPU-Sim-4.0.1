@@ -16,8 +16,12 @@ class i3_timer_scheduler : public dram_scheduler {
   dram_req_t *schedule(unsigned bank, unsigned curr_row) override;
   dram_req_t *schedule_pim() override;
 
+  void finalize_stats();
+
   // Additional stats for research
   std::vector<unsigned long long> m_pim_batch_exec_time;
+  std::vector<unsigned long long> m_mem_batch_exec_time;
+  std::vector<unsigned long long> m_mem_wasted_cycles;
   unsigned m_finished_batches;
   unsigned prev_pim_num;
 
@@ -28,6 +32,8 @@ class i3_timer_scheduler : public dram_scheduler {
  
   unsigned long long m_pim_batch_start_time;
   unsigned long long m_pim_batch_dur;
+ 
+  unsigned long long m_mem_batch_start_time;
 
   //unsigned m_finished_batches;
   //unsigned prev_pim_num = 0;

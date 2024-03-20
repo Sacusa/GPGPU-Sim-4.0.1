@@ -70,7 +70,9 @@ enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1, DRAM_GI = 2, DRAM_I1 = 3,
                    DRAM_I2 = 4, DRAM_I2A = 5, DRAM_I3 = 6, DRAM_I4A = 7,
                    DRAM_I4A_NO_CAP = 8, DRAM_I4B = 9, DRAM_HILL_CLIMBING = 10,
                    DRAM_I3_TIMER = 11, DRAM_I4B_NO_CAP = 12,
-                   DRAM_PIM_FRFCFS = 13, DRAM_PIM_FIRST = 14, DRAM_BLISS = 15};
+                   DRAM_PIM_FRFCFS = 13, DRAM_PIM_FIRST = 14, DRAM_BLISS = 15,
+                   DRAM_QUEUE = 16, DRAM_QUEUE2 = 17, DRAM_QUEUE3 = 18,
+                   DRAM_QUEUE4 = 19};
 
 struct power_config {
   power_config() { m_valid = true; }
@@ -343,6 +345,10 @@ class memory_config {
   unsigned bliss_clearing_interval;
   unsigned bliss_blacklisting_threshold;
 
+  float dram_sched_queue_mem_time_ratio_high;
+  float dram_sched_queue_mem_time_ratio_low;
+  float dram_sched_queue_max_pim_batches;
+
   gpgpu_context *gpgpu_ctx;
 };
 
@@ -557,7 +563,7 @@ class gpgpu_sim : public gpgpu_t {
   void decrement_kernel_latency();
 
   const gpgpu_sim_config &get_config() const { return m_config; }
-  void gpu_print_stat();
+  void gpu_print_stat(unsigned int kernel_uid);
   void dump_pipeline(int mask, int s, int m) const;
 
   void perf_memcpy_to_gpu(size_t dst_start_addr, size_t count);
@@ -659,10 +665,12 @@ class gpgpu_sim : public gpgpu_t {
       m_executed_kernel_uids;  //< uids of kernel launches for stat printout
   std::map<unsigned, watchpoint_event> g_watchpoint_hits;
 
-  std::string executed_kernel_info_string();  //< format the kernel information
-                                              // into a string for stat printout
-  void clear_executed_kernel_info();  //< clear the kernel information after
-                                      // stat printout
+  std::string executed_kernel_info_string(unsigned int kernel_uid);
+                                            //< format the kernel information
+                                            // into a string for stat printout
+  void clear_executed_kernel_info(unsigned int kernel_uid);
+                                        //< clear the kernel information after
+                                        // stat printout
   virtual void createSIMTCluster() = 0;
 
  public:

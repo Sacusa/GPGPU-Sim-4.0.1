@@ -14,6 +14,8 @@ i3_timer_scheduler::i3_timer_scheduler(const memory_config *config, dram_t *dm,
   m_pim_batch_start_time = 0;
   m_pim_batch_dur = 0;
 
+  m_mem_batch_start_time = 0;
+
   m_finished_batches = 0;
   prev_pim_num = 0;
 }
@@ -39,8 +41,8 @@ void i3_timer_scheduler::update_mode() {
       unsigned long long batch_exec_time = m_dram->m_dram_cycle - \
                                            m_pim_batch_start_time;
       m_pim_batch_start_time = 0;
-      m_pim_batch_dur += batch_exec_time;
       m_pim_batch_exec_time.push_back(batch_exec_time);
+      m_pim_batch_dur += batch_exec_time;
 
 #ifdef DRAM_SCHED_VERIFY
       if (have_pim) {
@@ -55,7 +57,10 @@ void i3_timer_scheduler::update_mode() {
       m_finished_batches++;
       prev_pim_num = m_dram->pim_num;
 
-      m_non_pim_to_pim_switch_cycle = m_dram->m_dram_cycle + m_pim_batch_dur;
+      if (m_finished_batches <= m_config->min_pim_batches) {
+        m_non_pim_to_pim_switch_cycle = m_dram->m_dram_cycle + \
+            ((m_config->max_pim_slowdown - 1) * m_pim_batch_dur);
+      }
     }
 
     if (((m_finished_batches >= m_config->min_pim_batches) || !have_pim) && \
@@ -81,6 +86,15 @@ void i3_timer_scheduler::update_mode() {
         m_dram->mode = PIM_MODE;
         m_dram->nonpim2pimswitches++;
 
+        m_mem_batch_exec_time.push_back(m_dram->m_dram_cycle - \
+            m_mem_batch_start_time);
+        m_mem_batch_start_time = 0;
+
+        if (m_dram->m_dram_cycle < m_non_pim_to_pim_switch_cycle) {
+          m_mem_wasted_cycles.push_back(m_non_pim_to_pim_switch_cycle - \
+              m_dram->m_dram_cycle);
+        }
+
 #ifdef DRAM_SCHED_VERIFY
         printf("DRAM (%d): Switching to PIM mode\n", m_dram->id);
 #endif
@@ -92,7 +106,13 @@ void i3_timer_scheduler::update_mode() {
 }
 
 dram_req_t *i3_timer_scheduler::schedule(unsigned bank, unsigned curr_row) {
-  return dram_scheduler::schedule(bank, curr_row);
+  dram_req_t *req = dram_scheduler::schedule(bank, curr_row);
+
+  if (req && (m_mem_batch_start_time == 0)) {
+    m_mem_batch_start_time = m_dram->m_dram_cycle;
+  }
+
+  return req;
 }
 
 dram_req_t *i3_timer_scheduler::schedule_pim() {
@@ -107,4 +127,23 @@ dram_req_t *i3_timer_scheduler::schedule_pim() {
   }
 
   return req;
+}
+
+void i3_timer_scheduler::finalize_stats()
+{
+  if (m_dram->mode == PIM_MODE) {
+    unsigned long long batch_exec_time = m_dram->m_dram_cycle - \
+                                         m_pim_batch_start_time;
+    m_pim_batch_exec_time.push_back(batch_exec_time);
+  }
+
+  else {
+    m_mem_batch_exec_time.push_back(m_dram->m_dram_cycle - \
+        m_mem_batch_start_time);
+
+    if (m_dram->m_dram_cycle < m_non_pim_to_pim_switch_cycle) {
+      m_mem_wasted_cycles.push_back(m_non_pim_to_pim_switch_cycle - \
+          m_dram->m_dram_cycle);
+    }
+  }
 }

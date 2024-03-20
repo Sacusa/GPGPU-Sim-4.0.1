@@ -18,6 +18,8 @@ class pim_frfcfs_scheduler : public dram_scheduler {
   dram_req_t *schedule(unsigned bank, unsigned curr_row) override;
   dram_req_t *schedule_pim() override;
 
+  std::vector<unsigned long long> m_bank_stall_time;
+
  private:
   std::list<std::list<dram_req_t *>::iterator> *m_pim_queue_it;
   unsigned m_last_pim_row;

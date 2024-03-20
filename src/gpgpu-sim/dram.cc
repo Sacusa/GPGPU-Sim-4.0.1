@@ -43,6 +43,10 @@
 #include "dram_sched_pim_frfcfs.h"
 #include "dram_sched_pim_first.h"
 #include "dram_sched_bliss.h"
+#include "dram_sched_queue.h"
+#include "dram_sched_queue2.h"
+#include "dram_sched_queue3.h"
+#include "dram_sched_queue4.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -78,14 +82,23 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   hits_read_num = 0;
   hits_write_num = 0;
   banks_1time = 0;
-  banks_acess_total = 0;
-  banks_acess_total_after = 0;
+  banks_access_total = 0;
+  banks_access_total_after = 0;
+  banks_time_rw = 0;
+  banks_access_rw_total = 0;
   banks_time_ready = 0;
   banks_access_ready_total = 0;
   issued_two = 0;
   issued_total = 0;
   issued_total_row = 0;
   issued_total_col = 0;
+
+  banks_1time_mem_only = 0;
+  banks_access_total_mem_only = 0;
+  banks_time_rw_mem_only = 0;
+  banks_access_rw_total_mem_only = 0;
+  banks_time_ready_mem_only = 0;
+  banks_access_ready_total_mem_only = 0;
 
   CCDc = 0;
   RRDc = 0;
@@ -109,6 +122,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   write_to_read_ratio_blp_rw_average = 0;
   bkgrp_parallsim_rw = 0;
 
+  write_to_read_ratio_blp_rw_average_mem_only = 0;
+  bkgrp_parallsim_rw_mem_only = 0;
+
   rw = READ;  // read mode is default
 
   bkgrp = (bankgrp_t **)calloc(sizeof(bankgrp_t *), m_config->nbkgrp);
@@ -130,8 +146,16 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   }
   prio = 0;
 
+  unsigned max_mrqq = 2;
+  if (m_config->scheduler_type == DRAM_FIFO) {
+    max_mrqq = m_config->gpgpu_frfcfs_dram_sched_queue_size + \
+               (m_config->seperate_write_queue_enabled ? \
+                m_config->gpgpu_frfcfs_dram_write_queue_size : 0) + \
+               m_config->gpgpu_frfcfs_dram_pim_queue_size;
+  }
+
   rwq = new fifo_pipeline<dram_req_t>("rwq", m_config->CL, m_config->CL + 1);
-  mrqq = new fifo_pipeline<dram_req_t>("mrqq", 0, 2);
+  mrqq = new fifo_pipeline<dram_req_t>("mrqq", 0, max_mrqq);
   returnq = new fifo_pipeline<mem_fetch>(
       "dramreturnq", 0,
       m_config->gpgpu_dram_return_queue_size == 0
@@ -178,14 +202,27 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_I4B_NO_CAP:
       m_scheduler = new i4b_no_cap_scheduler(m_config, this, stats);
       break;
-    case DRAM_PIM_FRFCFS:
+    case DRAM_PIM_FRFCFS: {
       m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
       break;
+    }
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
       break;
     case DRAM_BLISS:
       m_scheduler = new bliss_scheduler(m_config, this, stats);
+      break;
+    case DRAM_QUEUE:
+      m_scheduler = new queue_scheduler(m_config, this, stats);
+      break;
+    case DRAM_QUEUE2:
+      m_scheduler = new queue2_scheduler(m_config, this, stats);
+      break;
+    case DRAM_QUEUE3:
+      m_scheduler = new queue3_scheduler(m_config, this, stats);
+      break;
+    case DRAM_QUEUE4:
+      m_scheduler = new queue4_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
@@ -233,10 +270,17 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   pim2nonpimswitches = 0;
   nonpim2pimswitches = 0;
   nonpim2pimswitchlatency = 0;
+  nonpim2pimswitchconflicts = 0;
   first_non_pim_insert_timestamp = 0;
   first_pim_insert_timestamp = 0;
   last_non_pim_finish_timestamp = 0;
   last_pim_finish_timestamp = 0;
+  pim_queueing_delay = 0;
+  non_pim_queueing_delay = 0;
+  max_pim_mrqs = 0;
+  max_pim_mrqs_temp = 0;
+  ave_pim_mrqs = 0;
+  ave_pim_mrqs_partial = 0;
 
   // num_phases = 10  ==>  max_phase_length = 5120K ~= 5M
   int num_phases = 10;
@@ -392,7 +436,14 @@ void dram_t::push(class mem_fetch *data) {
     max_mrqs_temp = (max_mrqs_temp > mrqq->get_length()) ? max_mrqs_temp
                                                          : mrqq->get_length();
   } else {
-    unsigned nreqs = m_scheduler->num_pending();
+    unsigned nreqs = m_scheduler->num_pending() + \
+                     m_scheduler->num_write_pending();
+    if ((m_config->scheduler_type != DRAM_PIM_FRFCFS) &&
+        (m_config->scheduler_type != DRAM_BLISS)) {
+      unsigned int npimreqs = m_scheduler->num_pim_pending();
+      nreqs += npimreqs;
+      if (npimreqs > max_pim_mrqs_temp) { max_pim_mrqs_temp = npimreqs; }
+    }
     if (nreqs > max_mrqs_temp) max_mrqs_temp = nreqs;
   }
   m_stats->memlatstat_dram_access(data);
@@ -441,8 +492,8 @@ void dram_t::scheduler_fifo() {
     }
     else {
       if (first_non_pim_insert_timestamp == 0) {
-        first_pim_insert_timestamp = m_gpu->gpu_sim_cycle +
-                                     m_gpu->gpu_tot_sim_cycle;
+        first_non_pim_insert_timestamp = m_gpu->gpu_sim_cycle +
+                                         m_gpu->gpu_tot_sim_cycle;
       }
 
       if (!bk[bkn]->mrq) {
@@ -518,10 +569,24 @@ void dram_t::cycle() {
     ave_mrqs += mrqq->get_length();
     ave_mrqs_partial += mrqq->get_length();
   } else {
-    unsigned nreqs = m_scheduler->num_pending();
+    unsigned nreqs = m_scheduler->num_pending() + \
+                     m_scheduler->num_write_pending();
+    if ((m_config->scheduler_type != DRAM_PIM_FRFCFS) &&
+        (m_config->scheduler_type != DRAM_BLISS)) {
+      unsigned int npimreqs = m_scheduler->num_pim_pending();
+      nreqs += npimreqs;
+      ave_pim_mrqs += npimreqs;
+      ave_pim_mrqs_partial += npimreqs;
+
+      if (npimreqs > max_pim_mrqs) {
+        max_pim_mrqs = npimreqs;
+      }
+    }
+
     if (nreqs > max_mrqs) {
       max_mrqs = nreqs;
     }
+
     ave_mrqs += nreqs;
     ave_mrqs_partial += nreqs;
   }
@@ -532,16 +597,26 @@ void dram_t::cycle() {
   // collect row buffer locality, BLP and other statistics
   /////////////////////////////////////////////////////////////////////////
   unsigned int memory_pending = 0;
+  unsigned int memory_pending_mem_only = 0;
   for (unsigned i = 0; i < m_config->nbk; i++) {
-    if (bk[i]->mrq) memory_pending++;
+    if (bk[i]->mrq) {
+      memory_pending++;
+      if (!bk[i]->mrq->data->is_pim()) { memory_pending_mem_only++; }
+    }
   }
   banks_1time += memory_pending;
-  if (memory_pending > 0) banks_acess_total++;
+  banks_1time_mem_only += memory_pending_mem_only;
+  if (memory_pending > 0) { banks_access_total++; }
+  if (memory_pending_mem_only > 0) { banks_access_total_mem_only++; }
 
   unsigned int memory_pending_rw = 0;
+  unsigned int memory_pending_rw_mem_only = 0;
   unsigned read_blp_rw = 0;
+  unsigned read_blp_rw_mem_only = 0;
   unsigned write_blp_rw = 0;
+  unsigned write_blp_rw_mem_only = 0;
   std::bitset<8> bnkgrp_rw_found;  // assume max we have 8 bank groups
+  std::bitset<8> bnkgrp_rw_found_mem_only;
 
   for (unsigned j = 0; j < m_config->nbk; j++) {
     unsigned grp = get_bankgrp_number(j);
@@ -551,23 +626,43 @@ void dram_t::cycle() {
       memory_pending_rw++;
       read_blp_rw++;
       bnkgrp_rw_found.set(grp);
+      if (!bk[j]->mrq->data->is_pim()) {
+        memory_pending_rw_mem_only++;
+        read_blp_rw++;
+        bnkgrp_rw_found_mem_only.set(grp);
+      }
     } else if (bk[j]->mrq &&
                (((bk[j]->curr_row == bk[j]->mrq->row) &&
                  (bk[j]->mrq->rw == WRITE) && (bk[j]->state == BANK_ACTIVE)))) {
       memory_pending_rw++;
       write_blp_rw++;
       bnkgrp_rw_found.set(grp);
+      if (!bk[j]->mrq->data->is_pim()) {
+        memory_pending_rw_mem_only++;
+        write_blp_rw_mem_only++;
+        bnkgrp_rw_found_mem_only.set(grp);
+      }
     }
   }
+
   banks_time_rw += memory_pending_rw;
+  banks_time_rw_mem_only += memory_pending_rw_mem_only;
   bkgrp_parallsim_rw += bnkgrp_rw_found.count();
+  bkgrp_parallsim_rw_mem_only += bnkgrp_rw_found_mem_only.count();
   if (memory_pending_rw > 0) {
     write_to_read_ratio_blp_rw_average +=
         (double)write_blp_rw / (write_blp_rw + read_blp_rw);
     banks_access_rw_total++;
   }
+  if (memory_pending_rw_mem_only > 0) {
+    write_to_read_ratio_blp_rw_average_mem_only +=
+        (double)write_blp_rw_mem_only / (write_blp_rw_mem_only + \
+            read_blp_rw_mem_only);
+    banks_access_rw_total_mem_only++;
+  }
 
   unsigned int memory_Pending_ready = 0;
+  unsigned int memory_Pending_ready_mem_only = 0;
   for (unsigned j = 0; j < m_config->nbk; j++) {
     unsigned grp = get_bankgrp_number(j);
     if (bk[j]->mrq &&
@@ -578,10 +673,13 @@ void dram_t::cycle() {
           (bk[j]->curr_row == bk[j]->mrq->row) && (bk[j]->mrq->rw == WRITE) &&
           (RTWc == 0) && (bk[j]->state == BANK_ACTIVE) && !rwq->full()))) {
       memory_Pending_ready++;
+      if (!bk[j]->mrq->data->is_pim()) { memory_Pending_ready_mem_only++; }
     }
   }
   banks_time_ready += memory_Pending_ready;
-  if (memory_Pending_ready > 0) banks_access_ready_total++;
+  banks_time_ready_mem_only += memory_Pending_ready_mem_only;
+  if (memory_Pending_ready > 0) { banks_access_ready_total++; }
+  if (memory_Pending_ready_mem_only > 0) {banks_access_ready_total_mem_only++;}
   ///////////////////////////////////////////////////////////////////////////////////
 
   bool issued_col_cmd = false;
@@ -672,7 +770,7 @@ void dram_t::cycle() {
   for (unsigned i = 0; i < m_config->nbk; i++) {
     if (bk[i]->mrq) memory_pending_found++;
   }
-  if (memory_pending_found > 0) banks_acess_total_after++;
+  if (memory_pending_found > 0) banks_access_total_after++;
 
   bool memory_pending_rw_found = false;
   for (unsigned j = 0; j < m_config->nbk; j++) {
@@ -1083,8 +1181,9 @@ void dram_t::print(FILE *simFile) const {
          (float)hits_write_num / write_num);
   printf("\nRow_Buffer_Locality_pim = %.6f",
          (float)hits_pim_num / pim_num);
+
   printf("\nBank_Level_Parallism = %.6f",
-         (float)banks_1time / banks_acess_total);
+         (float)banks_1time / banks_access_total);
   printf("\nBank_Level_Parallism_Col = %.6f",
          (float)banks_time_rw / banks_access_rw_total);
   printf("\nBank_Level_Parallism_Ready = %.6f",
@@ -1094,6 +1193,18 @@ void dram_t::print(FILE *simFile) const {
   printf("\nGrpLevelPara = %.6f \n",
          (float)bkgrp_parallsim_rw / banks_access_rw_total);
 
+  printf("\nBank_Level_Parallism_MEM_only = %.6f",
+         (float)banks_1time_mem_only / banks_access_total_mem_only);
+  printf("\nBank_Level_Parallism_Col_MEM_only = %.6f",
+         (float)banks_time_rw_mem_only / banks_access_rw_total_mem_only);
+  printf("\nBank_Level_Parallism_Ready_MEM_only = %.6f",
+         (float)banks_time_ready_mem_only / banks_access_ready_total_mem_only);
+  printf("\nwrite_to_read_ratio_blp_rw_average_MEM_only = %.6f",
+         write_to_read_ratio_blp_rw_average_mem_only / \
+         banks_access_rw_total_mem_only);
+  printf("\nGrpLevelPara_MEM_only = %.6f \n",
+         (float)bkgrp_parallsim_rw_mem_only / banks_access_rw_total_mem_only);
+
   // Request arrival rate stats
   double sum_non_pim = 0;
   double mean_non_pim = 0;
@@ -1102,7 +1213,7 @@ void dram_t::print(FILE *simFile) const {
   double max_non_pim = 0;
   unsigned long long n_non_pim = n_req - n_pim;
 
-  if (n_non_pim > 0) {
+  if (n_non_pim > 1) {
     sum_non_pim = std::accumulate(non_pim_req_arrival_latency.begin(),
         non_pim_req_arrival_latency.end(), 0.0);
     mean_non_pim = sum_non_pim / n_non_pim;
@@ -1182,10 +1293,15 @@ void dram_t::print(FILE *simFile) const {
   printf("first_pim_insert = %llu\n", first_pim_insert_timestamp);
   printf("last_non_pim_finish = %llu\n", last_non_pim_finish_timestamp);
   printf("last_pim_finish = %llu\n", last_pim_finish_timestamp);
+  printf("avg_pim_queuing_delay = %lf\n", (double)pim_queueing_delay / n_pim);
+  printf("avg_non_pim_queuing_delay = %lf\n", (double)non_pim_queueing_delay /
+      (n_rd + n_wr + n_rd_L2_A + n_wr_WB));
 
-  if ((m_config->scheduler_type == DRAM_I3) || \
-      (m_config->scheduler_type == DRAM_I3_TIMER)) {
-    i3_scheduler *sched = (i3_scheduler*) m_scheduler;
+  if (m_config->scheduler_type == DRAM_I3_TIMER) {
+    i3_timer_scheduler *sched = (i3_timer_scheduler*) m_scheduler;
+
+    sched->finalize_stats();
+
     double sum = 0;
     double mean = 0;
     double sq = 0;
@@ -1210,10 +1326,64 @@ void dram_t::print(FILE *simFile) const {
     printf("\nStDevPimBatchExecTime = %.6f", stdev);
 
     double avg_batch_size = 0;
-    if (sched->m_finished_batches > 0) {
-      avg_batch_size = n_pim / sched->m_finished_batches;
-    }
+    if (len > 0) { avg_batch_size = n_pim / len; }
     printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
+
+    // MEM batch execution time
+    sum = 0;
+    mean = 0;
+    sq = 0;
+    stdev = 0;
+    max = 0;
+    len = sched->m_mem_batch_exec_time.size();
+
+    if (len > 0) {
+      sum = std::accumulate(sched->m_mem_batch_exec_time.begin(),
+          sched->m_mem_batch_exec_time.end(), 0.0);
+      mean = sum / len;
+      sq = std::inner_product(sched->m_mem_batch_exec_time.begin(),
+          sched->m_mem_batch_exec_time.end(),
+          sched->m_mem_batch_exec_time.begin(), 0.0);
+      stdev = std::sqrt(sq / len - mean * mean);
+      max = *std::max_element(std::begin(sched->m_mem_batch_exec_time), 
+          std::end(sched->m_mem_batch_exec_time));
+    }
+
+    printf("\nAvgMemBatchExecTime = %.6f", mean);
+    printf("\nMaxMemBatchExecTime = %.6f", max);
+    printf("\nStDevMemBatchExecTime = %.6f\n", stdev);
+
+    // Wasted MEM batch cycles
+    sum = 0;
+    mean = 0;
+    sq = 0;
+    stdev = 0;
+    max = 0;
+    // we reuse 'len' because we need average across all MEM batches
+
+    if (sched->m_mem_wasted_cycles.size()) {
+      sum = std::accumulate(sched->m_mem_wasted_cycles.begin(),
+          sched->m_mem_wasted_cycles.end(), 0.0);
+      mean = sum / len;
+      sq = std::inner_product(sched->m_mem_wasted_cycles.begin(),
+          sched->m_mem_wasted_cycles.end(),
+          sched->m_mem_wasted_cycles.begin(), 0.0);
+      stdev = std::sqrt(sq / len - mean * mean);
+      max = *std::max_element(std::begin(sched->m_mem_wasted_cycles), 
+          std::end(sched->m_mem_wasted_cycles));
+    }
+
+    printf("\nAvgMemWastedCycles = %.6f", mean);
+    printf("\nMaxMemWastedCycles = %.6f", max);
+    printf("\nStDevMemWastedCycles = %.6f\n", stdev);
+  }
+
+  if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
+    pim_frfcfs_scheduler *sched = (pim_frfcfs_scheduler*) m_scheduler;
+    printf("\nBank stall time for PIM:\n");
+    for (unsigned b = 0; b < m_config->nbk; b++) {
+      printf("Bank_%d_stall_time = %llu\n", b, sched->m_bank_stall_time[b]);
+    }
   }
 
   printf("\nDual Bus Interface Util: \n");
@@ -1225,6 +1395,7 @@ void dram_t::print(FILE *simFile) const {
   printf("Issued_on_Two_Bus_Simul_Util = %.6f \n", (float)issued_two / n_cmd);
   printf("issued_two_Eff = %.6f \n", (float)issued_two / issued_total);
   printf("queue_avg = %.6f \n\n", (float)ave_mrqs / n_cmd);
+  printf("queue_avg_pim = %.6f \n\n", (float)ave_pim_mrqs / n_cmd);
 
   fprintf(simFile, "\n");
   fprintf(simFile, "dram_util_bins:");
@@ -1232,9 +1403,12 @@ void dram_t::print(FILE *simFile) const {
   fprintf(simFile, "\ndram_eff_bins:");
   for (i = 0; i < 10; i++) fprintf(simFile, " %d", dram_eff_bins[i]);
   fprintf(simFile, "\n");
-  if (m_config->scheduler_type != DRAM_FIFO)
+  if (m_config->scheduler_type != DRAM_FIFO) {
     fprintf(simFile, "mrqq: max=%d avg=%g\n", max_mrqs,
             (float)ave_mrqs / n_cmd);
+    fprintf(simFile, "mrqq_pim: max=%d avg=%g\n", max_pim_mrqs,
+            (float)ave_pim_mrqs / n_cmd);
+  }
 
   printf("\nPhase statistics:\n");
   for (int i = 0; i < phase_length.size(); i++) {
@@ -1285,13 +1459,15 @@ void dram_t::print_stat(FILE *simFile) {
           (float)bwutil / n_cmd);
   fprintf(simFile, "mrqq: %d %.4g mrqsmax=%llu ", max_mrqs,
           (float)ave_mrqs / n_cmd, max_mrqs_temp);
+  fprintf(simFile, "mrqq_pim: %d %.4g mrqsmax_pim=%llu ", max_pim_mrqs,
+          (float)ave_pim_mrqs / n_cmd, max_pim_mrqs_temp);
   fprintf(simFile, "\n");
   fprintf(simFile, "dram_util_bins:");
   for (unsigned i = 0; i < 10; i++) fprintf(simFile, " %d", dram_util_bins[i]);
   fprintf(simFile, "\ndram_eff_bins:");
   for (unsigned i = 0; i < 10; i++) fprintf(simFile, " %d", dram_eff_bins[i]);
   fprintf(simFile, "\n");
-  max_mrqs_temp = 0;
+  max_pim_mrqs_temp = 0;
 }
 
 void dram_t::visualizer_print(gzFile visualizer_file) {
@@ -1303,6 +1479,8 @@ void dram_t::visualizer_print(gzFile visualizer_file) {
   gzprintf(visualizer_file, "dramnreq: %u %u\n", id, n_req_partial);
   gzprintf(visualizer_file, "dramavemrqs: %u %u\n", id,
            n_cmd_partial ? (ave_mrqs_partial / n_cmd_partial) : 0);
+  gzprintf(visualizer_file, "dramavepimmrqs: %u %u\n", id,
+           n_cmd_partial ? (ave_pim_mrqs_partial / n_cmd_partial) : 0);
 
   // utilization and efficiency
   gzprintf(visualizer_file, "dramutil: %u %u\n", id,
@@ -1314,6 +1492,7 @@ void dram_t::visualizer_print(gzFile visualizer_file) {
   bwutil_partial = 0;
   n_activity_partial = 0;
   ave_mrqs_partial = 0;
+  ave_pim_mrqs_partial = 0;
   n_cmd_partial = 0;
   n_nop_partial = 0;
   n_act_partial = 0;

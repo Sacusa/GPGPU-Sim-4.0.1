@@ -334,18 +334,17 @@ void dram_t::scheduler_frfcfs() {
 
   if (mode == PIM_MODE) {
     bool can_schedule = true;
+    bool waiting_for_nonpim = false;
 
     for (unsigned b = 0; b < m_config->nbk; b++) {
       if (bk[b]->mrq) {
         can_schedule = false;
-
-        if (!bk[b]->mrq->data->is_pim()) {
-          nonpim2pimswitchlatency++;
-        }
-
+        waiting_for_nonpim = waiting_for_nonpim || !bk[b]->mrq->data->is_pim();
         break;
       }
     }
+
+    if (waiting_for_nonpim) { nonpim2pimswitchlatency++; }
 
     if (can_schedule) {
       dram_req_t *req = sched->schedule_pim();
@@ -355,6 +354,10 @@ void dram_t::scheduler_frfcfs() {
           bk[b]->mrq = req;
         }
       }
+    }
+
+    if ((sched->num_pending() + sched->num_write_pending()) > 0) {
+      non_pim_queueing_delay++;
     }
   }
 
@@ -372,6 +375,10 @@ void dram_t::scheduler_frfcfs() {
           break;
         }
       }
+    }
+
+    if (sched->num_pim_pending() > 0) {
+      pim_queueing_delay++;
     }
   }
 

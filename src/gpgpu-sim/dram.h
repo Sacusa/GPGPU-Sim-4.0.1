@@ -50,7 +50,7 @@
 #define BANK_ACTIVE 'A'
 
 //#define DRAM_VERIFY
-#define DRAM_SCHED_VERIFY
+//#define DRAM_SCHED_VERIFY
 
 enum memory_mode { READ_MODE = 0, WRITE_MODE, PIM_MODE };
 
@@ -232,8 +232,8 @@ class dram_t {
   unsigned long long hits_write_num;
   unsigned long long hits_pim_num;
   unsigned long long banks_1time;
-  unsigned long long banks_acess_total;
-  unsigned long long banks_acess_total_after;
+  unsigned long long banks_access_total;
+  unsigned long long banks_access_total_after;
   unsigned long long banks_time_rw;
   unsigned long long banks_access_rw_total;
   unsigned long long banks_time_ready;
@@ -244,6 +244,16 @@ class dram_t {
   unsigned long long issued_total_col;
   double write_to_read_ratio_blp_rw_average;
   unsigned long long bkgrp_parallsim_rw;
+
+  // MEM only BLP statistics
+  unsigned long long banks_1time_mem_only;
+  unsigned long long banks_access_total_mem_only;
+  unsigned long long banks_time_rw_mem_only;
+  unsigned long long banks_access_rw_total_mem_only;
+  unsigned long long banks_time_ready_mem_only;
+  unsigned long long banks_access_ready_total_mem_only;
+  double write_to_read_ratio_blp_rw_average_mem_only;
+  unsigned long long bkgrp_parallsim_rw_mem_only;
 
   unsigned int bwutil;
   unsigned int max_mrqs;
@@ -258,6 +268,12 @@ class dram_t {
   unsigned long long first_pim_insert_timestamp;
   unsigned long long last_non_pim_finish_timestamp;
   unsigned long long last_pim_finish_timestamp;
+  unsigned long long pim_queueing_delay;
+  unsigned long long non_pim_queueing_delay;
+  unsigned int max_pim_mrqs;
+  unsigned int max_pim_mrqs_temp;
+  unsigned int ave_pim_mrqs;
+  unsigned int ave_pim_mrqs_partial;
 
   class dram_scheduler *m_scheduler;
 
@@ -297,6 +313,10 @@ class dram_t {
   friend class pim_frfcfs_scheduler;
   friend class pim_first_scheduler;
   friend class bliss_scheduler;
+  friend class queue_scheduler;
+  friend class queue2_scheduler;
+  friend class queue3_scheduler;
+  friend class queue4_scheduler;
 };
 
 #endif /*DRAM_H*/

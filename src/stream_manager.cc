@@ -233,9 +233,9 @@ void stream_operation::print(FILE *fp) const {
 
 stream_manager::stream_manager(gpgpu_sim *gpu, bool cuda_launch_blocking) {
   m_gpu = gpu;
-  m_stream_zero_serviced_last = false;
   m_cuda_launch_blocking = cuda_launch_blocking;
   pthread_mutex_init(&m_lock, NULL);
+  m_streams.push_back(&m_stream_zero);
   m_last_stream = m_streams.begin();
 }
 
@@ -319,33 +319,13 @@ void stream_manager::stop_all_running_kernels() {
 stream_operation stream_manager::front() {
   // called by gpu simulation thread
   stream_operation result;
-  
-  std::list<struct CUstream_st *>::iterator s;
-  if (m_stream_zero_serviced_last) {
-    s = m_streams.begin();
-  } else {
-    s = m_last_stream;
-    s++;
-  }
 
-  m_stream_zero_serviced_last = false;
+  std::list<struct CUstream_st *>::iterator s = m_last_stream;
+  s++;
 
   for (size_t ii = 0; ii < m_streams.size(); ii++, s++) {
     if (s == m_streams.end()) {
-      if (!m_stream_zero.empty() && !m_stream_zero.busy()) {
-        result = m_stream_zero.next();
-        if (result.is_kernel()) {
-          unsigned grid_id = result.get_kernel()->get_uid();
-          m_grid_id_to_stream[grid_id] = &m_stream_zero;
-        }
-
-        m_stream_zero_serviced_last = true;
-        break;
-      }
-
-      else {
-        s = m_streams.begin();
-      }
+      s = m_streams.begin();
     }
 
     m_last_stream = s;
@@ -372,6 +352,7 @@ void stream_manager::add_stream(struct CUstream_st *stream) {
 
 void stream_manager::destroy_stream(CUstream_st *stream) {
   // called by host thread
+  assert(stream != &m_stream_zero);
   pthread_mutex_lock(&m_lock);
   while (!stream->empty())
     ;
@@ -407,7 +388,6 @@ bool stream_manager::empty_protected() {
   bool result = true;
   pthread_mutex_lock(&m_lock);
   if (!concurrent_streams_empty()) result = false;
-  if (!m_stream_zero.empty()) result = false;
   pthread_mutex_unlock(&m_lock);
   return result;
 }
@@ -415,7 +395,6 @@ bool stream_manager::empty_protected() {
 bool stream_manager::empty() {
   bool result = true;
   if (!concurrent_streams_empty()) result = false;
-  if (!m_stream_zero.empty()) result = false;
   return result;
 }
 
@@ -431,7 +410,6 @@ void stream_manager::print_impl(FILE *fp) {
     struct CUstream_st *stream = *s;
     if (!stream->empty()) stream->print(fp);
   }
-  if (!m_stream_zero.empty()) m_stream_zero.print(fp);
 }
 
 void stream_manager::push(stream_operation op) {

@@ -41,7 +41,7 @@
 #include "dram_sched_i4b_no_cap.h"
 #include "dram_sched_hill_climbing.h"
 #include "dram_sched_pim_frfcfs.h"
-#include "dram_sched_pim_first.h"
+#include "dram_sched_gi_mem.h"
 #include "dram_sched_bliss.h"
 #include "dram_sched_queue.h"
 #include "dram_sched_queue2.h"
@@ -206,8 +206,8 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_PIM_FRFCFS:
       m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
       break;
-    case DRAM_PIM_FIRST:
-      m_scheduler = new pim_first_scheduler(m_config, this, stats);
+    case DRAM_GI_MEM:
+      m_scheduler = new gi_mem_scheduler(m_config, this, stats);
       break;
     case DRAM_BLISS:
       m_scheduler = new bliss_scheduler(m_config, this, stats);
@@ -300,13 +300,6 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
 bool dram_t::full(bool is_write, bool is_pim) const {
   if (m_config->scheduler_type == DRAM_FIFO) {
     return mrqq->full();
-  }
-
-  else if (m_config->scheduler_type == DRAM_BLISS) {
-    if (m_config->gpgpu_frfcfs_dram_sched_queue_size == 0) return false;
-
-    return m_scheduler->num_pending() >=
-           m_config->gpgpu_frfcfs_dram_sched_queue_size;
   }
 
   else {
@@ -440,12 +433,12 @@ void dram_t::push(class mem_fetch *data) {
   } else {
     unsigned nreqs = m_scheduler->num_pending() + \
                      m_scheduler->num_write_pending();
-    if (m_config->scheduler_type != DRAM_BLISS) {
-      unsigned int npimreqs = m_scheduler->num_pim_pending();
-      nreqs += npimreqs;
-      if (npimreqs > max_pim_mrqs_temp) { max_pim_mrqs_temp = npimreqs; }
-    }
+    unsigned int npimreqs = m_scheduler->num_pim_pending();
+
+    nreqs += npimreqs;
+
     if (nreqs > max_mrqs_temp) max_mrqs_temp = nreqs;
+    if (npimreqs > max_pim_mrqs_temp) { max_pim_mrqs_temp = npimreqs; }
   }
   m_stats->memlatstat_dram_access(data);
 }
@@ -572,23 +565,21 @@ void dram_t::cycle() {
   } else {
     unsigned nreqs = m_scheduler->num_pending() + \
                      m_scheduler->num_write_pending();
-    if (m_config->scheduler_type != DRAM_BLISS) {
-      unsigned int npimreqs = m_scheduler->num_pim_pending();
-      nreqs += npimreqs;
-      ave_pim_mrqs += npimreqs;
-      ave_pim_mrqs_partial += npimreqs;
+    unsigned int npimreqs = m_scheduler->num_pim_pending();
 
-      if (npimreqs > max_pim_mrqs) {
-        max_pim_mrqs = npimreqs;
-      }
-    }
+    nreqs += npimreqs;
 
     if (nreqs > max_mrqs) {
       max_mrqs = nreqs;
     }
+    if (npimreqs > max_pim_mrqs) {
+      max_pim_mrqs = npimreqs;
+    }
 
     ave_mrqs += nreqs;
     ave_mrqs_partial += nreqs;
+    ave_pim_mrqs += npimreqs;
+    ave_pim_mrqs_partial += npimreqs;
   }
 
   unsigned k = m_config->nbk;

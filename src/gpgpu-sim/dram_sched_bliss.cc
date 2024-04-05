@@ -19,10 +19,8 @@ bliss_scheduler::bliss_scheduler(const memory_config *config,
 }
 
 void bliss_scheduler::add_req(dram_req_t *req) {
-  assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
-  m_num_pending++;
-
   if (req->data->is_pim()) {
+    assert(m_num_pim_pending < m_config->gpgpu_frfcfs_dram_pim_queue_size);
     m_num_pim_pending++;
 
     for (unsigned int b = 0; b < m_config->nbk; b++) {
@@ -38,6 +36,9 @@ void bliss_scheduler::add_req(dram_req_t *req) {
   }
 
   else {
+    assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
+    m_num_pending++;
+
     m_queue[req->bk].push_front(req);
     std::list<dram_req_t *>::iterator ptr = m_queue[req->bk].begin();
     m_bins[req->bk][req->row].push_front(ptr);  // newest reqs to the front
@@ -50,7 +51,7 @@ void bliss_scheduler::add_req(dram_req_t *req) {
 }
 
 void bliss_scheduler::update_mode() {
-  unsigned num_mem_pending = m_num_pending - m_num_pim_pending;
+  unsigned num_mem_pending = m_num_pending;
   enum memory_mode prev_mode = m_dram->mode;
 
   if ((m_dram->m_dram_cycle % m_config->bliss_clearing_interval) == 0) {
@@ -100,7 +101,9 @@ void bliss_scheduler::update_mode() {
         bool switch_to_pim = true;
 
         for (unsigned b = 0; b < m_config->nbk; b++) {
-          switch_to_pim = switch_to_pim && (m_last_row[b] == NULL) && \
+          switch_to_pim = switch_to_pim && \
+                          !is_next_req_hit(b, m_dram->bk[b]->curr_row,
+                                           m_dram->mode) && \
                           !m_queue[b].empty() && \
                           m_queue[b].back()->data->is_pim();
         }
@@ -256,8 +259,7 @@ dram_req_t *bliss_scheduler::schedule_pim() {
 
   m_last_pim_row = req->row;
 
-  assert(req != NULL && m_num_pending != 0 && m_num_pim_pending != 0);
-  m_num_pending--;
+  assert(req != NULL && m_num_pim_pending != 0);
   m_num_pim_pending--;
 
   return req;

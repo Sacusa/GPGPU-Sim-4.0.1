@@ -1,15 +1,15 @@
 #include "dram_sched.h"
-#include "dram_sched_pim_first.h"
+#include "dram_sched_gi_mem.h"
 #include "../abstract_hardware_model.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-pim_first_scheduler::pim_first_scheduler(const memory_config *config,
+gi_mem_scheduler::gi_mem_scheduler(const memory_config *config,
     dram_t *dm, memory_stats_t *stats) : dram_scheduler(config, dm, stats)
 {}
 
-void pim_first_scheduler::update_mode() {
+void gi_mem_scheduler::update_mode() {
   bool have_mem = false;
 
   for (unsigned b = 0; b < m_config->nbk; b++) {

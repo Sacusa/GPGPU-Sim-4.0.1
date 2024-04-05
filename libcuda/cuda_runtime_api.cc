@@ -2770,7 +2770,13 @@ __host__ const char *cudaGetErrorName(cudaError_t error) {
   if (g_debug_execution >= 3) {
     announce_call(__my_func__);
   }
-  cuda_not_implemented(__my_func__, __LINE__);
+  if (error == cudaSuccess) {
+    gpgpu_context *ctx = GPGPU_Context();
+    printf("GPGPUSim total cycles = %llu\n",
+        ctx->the_gpgpusim->g_the_gpu->gpu_tot_sim_cycle + \
+        ctx->the_gpgpusim->g_the_gpu->gpu_sim_cycle);
+  }
+  //cuda_not_implemented(__my_func__, __LINE__);
   return NULL;
 }
 
@@ -3676,10 +3682,13 @@ void __cudaUnregisterFatBinary(void **fatCubinHandle) {
 }
 
 cudaError_t cudaDeviceReset(void) {
-  // Should reset the simulated GPU
   if (g_debug_execution >= 3) {
     announce_call(__my_func__);
   }
+
+  gpgpu_context *ctx = GPGPU_Context();
+  ctx->the_gpgpusim->g_stream_manager->stop_all_running_kernels();
+
   return g_last_cudaError = cudaSuccess;
 }
 

@@ -162,19 +162,40 @@ bool dram_scheduler::is_next_req_hit(unsigned bank, unsigned curr_row,
 }
 
 void dram_scheduler::update_mode() {
-  bool have_reads = false, have_writes = false;
+  bool have_reads = m_num_pending > 0;
+  bool have_writes = m_num_write_pending > 0;
+  bool have_mem = have_reads || have_writes;
+  bool have_pim = m_num_pim_pending > 0;
 
-  if (m_config->seperate_write_queue_enabled) {
-    if (m_dram->mode == READ_MODE &&
-        ((m_num_write_pending >= m_config->write_high_watermark)
-         || (!have_reads && have_writes)
-         )) {
-      m_dram->mode = WRITE_MODE;
-    } else if (m_dram->mode == WRITE_MODE &&
-               ((m_num_write_pending < m_config->write_low_watermark)
-                || (have_reads && !have_writes)
-                )) {
+  enum memory_mode prev_mode = m_dram->mode;
+
+  if (m_dram->mode == PIM_MODE) {
+    if (have_mem && !have_pim) {
       m_dram->mode = READ_MODE;
+      m_dram->pim2nonpimswitches++;
+    }
+  }
+
+  else {
+    if (!have_mem && have_pim) {
+      m_dram->mode = PIM_MODE;
+      m_dram->nonpim2pimswitches++;
+    }
+  }
+
+  if (m_dram->mode != PIM_MODE) {
+    if (m_config->seperate_write_queue_enabled) {
+      if (m_dram->mode == READ_MODE &&
+          ((m_num_write_pending >= m_config->write_high_watermark)
+           || (!have_reads && have_writes)
+           )) {
+        m_dram->mode = WRITE_MODE;
+      } else if (m_dram->mode == WRITE_MODE &&
+                 ((m_num_write_pending < m_config->write_low_watermark)
+                  || (have_reads && !have_writes)
+                  )) {
+        m_dram->mode = READ_MODE;
+      }
     }
   }
 }

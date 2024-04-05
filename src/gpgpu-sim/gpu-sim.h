@@ -72,7 +72,7 @@ enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1, DRAM_GI = 2, DRAM_I1 = 3,
                    DRAM_I3_TIMER = 11, DRAM_I4B_NO_CAP = 12,
                    DRAM_PIM_FRFCFS = 13, DRAM_PIM_FIRST = 14, DRAM_BLISS = 15,
                    DRAM_QUEUE = 16, DRAM_QUEUE2 = 17, DRAM_QUEUE3 = 18,
-                   DRAM_QUEUE4 = 19};
+                   DRAM_QUEUE4 = 19, DRAM_PIM_FRFCFS_UTIL = 20};
 
 struct power_config {
   power_config() { m_valid = true; }

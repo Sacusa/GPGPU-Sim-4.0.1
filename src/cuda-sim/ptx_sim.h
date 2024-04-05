@@ -273,8 +273,10 @@ class ptx_version {
         m_texmode_unified = true;
       else if (!strcmp(ext, "map_f64_to_f32"))
         m_map_f64_to_f32 = true;
-      else
+      else {
+        std::cout << "Unrecognized extension: " << ext << std::endl;
         abort();
+      }
     }
   }
 

@@ -1,23 +1,25 @@
 #include "dram_sched.h"
-#include "dram_sched_pim_frfcfs.h"
+#include "dram_sched_pim_frfcfs_util.h"
 #include "../abstract_hardware_model.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-pim_frfcfs_scheduler::pim_frfcfs_scheduler(const memory_config *config,
-    dram_t *dm, memory_stats_t *stats) : dram_scheduler(config, dm, stats) {
+pim_frfcfs_util_scheduler::pim_frfcfs_util_scheduler(
+    const memory_config *config, dram_t *dm, memory_stats_t *stats)
+  : dram_scheduler(config, dm, stats) {
   m_pim_queue_it =
       new std::list<std::list<dram_req_t *>::iterator>[m_config->nbk];
   m_last_pim_row = 0;
   m_promotion_count.resize(m_config->nbk, 0);
+  m_bank_switch_to_pim.resize(m_config->nbk, false);
 
   m_bank_pim_stall_time.resize(m_config->nbk, 0);
   m_bank_pim_waste_time.resize(m_config->nbk, 0);
   m_bank_pending_mem_requests.resize(m_config->nbk, 0);
 }
 
-void pim_frfcfs_scheduler::add_req(dram_req_t *req) {
+void pim_frfcfs_util_scheduler::add_req(dram_req_t *req) {
   if (req->data->is_pim()) {
     assert(m_num_pim_pending < m_config->gpgpu_frfcfs_dram_pim_queue_size);
     m_num_pim_pending++;
@@ -51,7 +53,7 @@ void pim_frfcfs_scheduler::add_req(dram_req_t *req) {
   }
 }
 
-void pim_frfcfs_scheduler::update_mode() {
+void pim_frfcfs_util_scheduler::update_mode() {
   unsigned num_mem_pending = m_num_pending;
   enum memory_mode prev_mode = m_dram->mode;
 
@@ -101,7 +103,6 @@ void pim_frfcfs_scheduler::update_mode() {
         }
       } else {
         bool switch_to_pim = true;
-        std::vector<bool> switch_to_pim_bank;
 
         bool at_least_one_bank_can_switch = false;
         std::vector<bool> has_mem_requests;
@@ -112,10 +113,10 @@ void pim_frfcfs_scheduler::update_mode() {
                                  !m_queue[b].empty() && \
                                  m_queue[b].back()->data->is_pim();
 
-          switch_to_pim = switch_to_pim && can_bank_switch;
-          switch_to_pim_bank.push_back(can_bank_switch);
+          m_bank_switch_to_pim[b] = m_bank_switch_to_pim[b] || can_bank_switch;
+          switch_to_pim = switch_to_pim && m_bank_switch_to_pim[b];
           at_least_one_bank_can_switch = at_least_one_bank_can_switch || \
-                                         can_bank_switch;
+                                         m_bank_switch_to_pim[b];
         }
 
         // 3) Every bank has a row buffer miss and PIM is the oldest request
@@ -123,7 +124,7 @@ void pim_frfcfs_scheduler::update_mode() {
 
         else if (at_least_one_bank_can_switch) {
           for (unsigned b = 0; b < m_config->nbk; b++) {
-            if (switch_to_pim_bank[b]) {
+            if (m_bank_switch_to_pim[b]) {
               m_bank_pim_stall_time[b]++;
               if (m_bank_pending_mem_requests[b] > 0) {
                 m_bank_pim_waste_time[b]++;
@@ -146,6 +147,8 @@ void pim_frfcfs_scheduler::update_mode() {
     } else {
       m_dram->nonpim2pimswitches++;
       m_last_pim_row = 0;
+      std::fill(m_bank_switch_to_pim.begin(), m_bank_switch_to_pim.end(),
+          false);
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to PIM mode\n");
 #endif
@@ -153,7 +156,7 @@ void pim_frfcfs_scheduler::update_mode() {
   }
 }
 
-dram_req_t *pim_frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
+dram_req_t *pim_frfcfs_util_scheduler::schedule(unsigned bank, unsigned curr_row) {
   bool rowhit = true;
   std::list<dram_req_t *> *m_current_queue = m_queue;
   std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >
@@ -169,7 +172,23 @@ dram_req_t *pim_frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
     if (bin_ptr == m_current_bins[bank].end()) {
       dram_req_t *req = m_current_queue[bank].back();
 
-      if (req->data->is_pim()) { return NULL; }
+      if (req->data->is_pim()) {
+        if (m_bank_pending_mem_requests[bank] == 0) {
+          return NULL;
+        }
+
+        std::list<dram_req_t*>::reverse_iterator rit;
+        for (rit = m_current_queue[bank].rbegin();
+                rit != m_current_queue[bank].rend(); rit++){
+          if (!(*rit)->data->is_pim()) {
+            req = *rit;
+            break;
+          }
+        }
+
+        // TODO: remove this?
+        assert(rit != m_current_queue[bank].rend());
+      }
 
       bin_ptr = m_current_bins[bank].find(req->row);
       assert(bin_ptr !=
@@ -231,7 +250,7 @@ dram_req_t *pim_frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
   return req;
 }
 
-dram_req_t *pim_frfcfs_scheduler::schedule_pim() {
+dram_req_t *pim_frfcfs_util_scheduler::schedule_pim() {
   std::list<dram_req_t *> *m_current_queue = m_queue;
   std::map<unsigned, std::list<std::list<dram_req_t *>::iterator> >
       *m_current_bins = m_bins;

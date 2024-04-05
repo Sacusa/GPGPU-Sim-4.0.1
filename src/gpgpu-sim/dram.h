@@ -317,6 +317,7 @@ class dram_t {
   friend class queue2_scheduler;
   friend class queue3_scheduler;
   friend class queue4_scheduler;
+  friend class pim_frfcfs_util_scheduler;
 };
 
 #endif /*DRAM_H*/

@@ -47,6 +47,7 @@
 #include "dram_sched_queue2.h"
 #include "dram_sched_queue3.h"
 #include "dram_sched_queue4.h"
+#include "dram_sched_pim_frfcfs_util.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -202,10 +203,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_I4B_NO_CAP:
       m_scheduler = new i4b_no_cap_scheduler(m_config, this, stats);
       break;
-    case DRAM_PIM_FRFCFS: {
+    case DRAM_PIM_FRFCFS:
       m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
       break;
-    }
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
       break;
@@ -223,6 +223,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
       break;
     case DRAM_QUEUE4:
       m_scheduler = new queue4_scheduler(m_config, this, stats);
+      break;
+    case DRAM_PIM_FRFCFS_UTIL:
+      m_scheduler = new pim_frfcfs_util_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
@@ -299,8 +302,7 @@ bool dram_t::full(bool is_write, bool is_pim) const {
     return mrqq->full();
   }
 
-  else if ((m_config->scheduler_type == DRAM_PIM_FRFCFS) || \
-           (m_config->scheduler_type == DRAM_BLISS)) {
+  else if (m_config->scheduler_type == DRAM_BLISS) {
     if (m_config->gpgpu_frfcfs_dram_sched_queue_size == 0) return false;
 
     return m_scheduler->num_pending() >=
@@ -438,8 +440,7 @@ void dram_t::push(class mem_fetch *data) {
   } else {
     unsigned nreqs = m_scheduler->num_pending() + \
                      m_scheduler->num_write_pending();
-    if ((m_config->scheduler_type != DRAM_PIM_FRFCFS) &&
-        (m_config->scheduler_type != DRAM_BLISS)) {
+    if (m_config->scheduler_type != DRAM_BLISS) {
       unsigned int npimreqs = m_scheduler->num_pim_pending();
       nreqs += npimreqs;
       if (npimreqs > max_pim_mrqs_temp) { max_pim_mrqs_temp = npimreqs; }
@@ -571,8 +572,7 @@ void dram_t::cycle() {
   } else {
     unsigned nreqs = m_scheduler->num_pending() + \
                      m_scheduler->num_write_pending();
-    if ((m_config->scheduler_type != DRAM_PIM_FRFCFS) &&
-        (m_config->scheduler_type != DRAM_BLISS)) {
+    if (m_config->scheduler_type != DRAM_BLISS) {
       unsigned int npimreqs = m_scheduler->num_pim_pending();
       nreqs += npimreqs;
       ave_pim_mrqs += npimreqs;
@@ -1022,7 +1022,7 @@ bool dram_t::issue_pim_col_command() {
       !CCDc && !bk[j]->RCDWRc && !(bkgrp[grp]->CCDLc) &&
       (bk[j]->curr_row == bk[j]->mrq->row) && (bk[j]->mrq->rw == WRITE) &&
       (RTWc == 0) && (bk[j]->state == BANK_ACTIVE) && !rwq->full();
-    
+
     if (!can_issue) { break; }
   }
 
@@ -1046,7 +1046,7 @@ bool dram_t::issue_pim_col_command() {
       // TODO: should the following two statistics be disabled?
       bwutil += m_config->BL / m_config->data_command_freq_ratio;
       bwutil_partial += m_config->BL / m_config->data_command_freq_ratio;
-      
+
 #ifdef DRAM_VERIFY
       PRINT_CYCLE = 1;
       printf("\tPIM Ch:%d Bk:%d Row:%03x Col:%03x \n", id, j,
@@ -1089,7 +1089,7 @@ bool dram_t::issue_pim_row_command() {
 
       can_issue = can_issue && !bk[j]->RASc && !bk[j]->WTPc && !bk[j]->RTPc &&
            !bkgrp[grp]->RTPLc;
-      
+
       if (!can_issue) { break; }
     }
 
@@ -1114,7 +1114,7 @@ bool dram_t::issue_pim_row_command() {
 
     for (unsigned j : activate_banks) {
       can_issue = can_issue && !RRDc && !bk[j]->RPc && !bk[j]->RCc;
-      
+
       if (!can_issue) { break; }
     }
 
@@ -1222,7 +1222,7 @@ void dram_t::print(FILE *simFile) const {
         0.0);
     stdev_non_pim = std::sqrt(sq_sum_non_pim / n_non_pim -
         mean_non_pim * mean_non_pim);
-    max_non_pim = *std::max_element(std::begin(non_pim_req_arrival_latency), 
+    max_non_pim = *std::max_element(std::begin(non_pim_req_arrival_latency),
         std::end(non_pim_req_arrival_latency));
   }
 
@@ -1243,7 +1243,7 @@ void dram_t::print(FILE *simFile) const {
     sq_sum_pim = std::inner_product(pim_req_arrival_latency.begin(),
         pim_req_arrival_latency.end(), pim_req_arrival_latency.begin(), 0.0);
     stdev_pim = std::sqrt(sq_sum_pim / n_pim - mean_pim * mean_pim);
-    max_pim = *std::max_element(std::begin(pim_req_arrival_latency), 
+    max_pim = *std::max_element(std::begin(pim_req_arrival_latency),
         std::end(pim_req_arrival_latency));
   }
 
@@ -1317,7 +1317,7 @@ void dram_t::print(FILE *simFile) const {
           sched->m_pim_batch_exec_time.end(),
           sched->m_pim_batch_exec_time.begin(), 0.0);
       stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_pim_batch_exec_time), 
+      max = *std::max_element(std::begin(sched->m_pim_batch_exec_time),
           std::end(sched->m_pim_batch_exec_time));
     }
 
@@ -1345,7 +1345,7 @@ void dram_t::print(FILE *simFile) const {
           sched->m_mem_batch_exec_time.end(),
           sched->m_mem_batch_exec_time.begin(), 0.0);
       stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_mem_batch_exec_time), 
+      max = *std::max_element(std::begin(sched->m_mem_batch_exec_time),
           std::end(sched->m_mem_batch_exec_time));
     }
 
@@ -1369,7 +1369,7 @@ void dram_t::print(FILE *simFile) const {
           sched->m_mem_wasted_cycles.end(),
           sched->m_mem_wasted_cycles.begin(), 0.0);
       stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_mem_wasted_cycles), 
+      max = *std::max_element(std::begin(sched->m_mem_wasted_cycles),
           std::end(sched->m_mem_wasted_cycles));
     }
 
@@ -1378,11 +1378,18 @@ void dram_t::print(FILE *simFile) const {
     printf("\nStDevMemWastedCycles = %.6f\n", stdev);
   }
 
-  if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
+  if ((m_config->scheduler_type == DRAM_PIM_FRFCFS) ||
+      (m_config->scheduler_type == DRAM_PIM_FRFCFS_UTIL)) {
     pim_frfcfs_scheduler *sched = (pim_frfcfs_scheduler*) m_scheduler;
+
     printf("\nBank stall time for PIM:\n");
     for (unsigned b = 0; b < m_config->nbk; b++) {
-      printf("Bank_%d_stall_time = %llu\n", b, sched->m_bank_stall_time[b]);
+      printf("Bank_%d_stall_time = %llu\n", b,sched->m_bank_pim_stall_time[b]);
+    }
+
+    printf("\nBank waste time for PIM:\n");
+    for (unsigned b = 0; b < m_config->nbk; b++) {
+      printf("Bank_%d_waste_time = %llu\n", b,sched->m_bank_pim_waste_time[b]);
     }
   }
 

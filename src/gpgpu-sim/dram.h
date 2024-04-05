@@ -318,6 +318,8 @@ class dram_t {
   friend class queue3_scheduler;
   friend class queue4_scheduler;
   friend class pim_frfcfs_util_scheduler;
+  friend class mem_first_scheduler;
+  friend class pim_first_scheduler;
 };
 
 #endif /*DRAM_H*/

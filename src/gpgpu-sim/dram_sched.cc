@@ -173,6 +173,10 @@ void dram_scheduler::update_mode() {
     if (have_mem && !have_pim) {
       m_dram->mode = READ_MODE;
       m_dram->pim2nonpimswitches++;
+
+#ifdef DRAM_SCHED_VERIFY
+      printf("DRAM: Switching to non-PIM mode\n");
+#endif
     }
   }
 
@@ -180,6 +184,10 @@ void dram_scheduler::update_mode() {
     if (!have_mem && have_pim) {
       m_dram->mode = PIM_MODE;
       m_dram->nonpim2pimswitches++;
+
+#ifdef DRAM_SCHED_VERIFY
+      printf("DRAM: Switching to PIM mode\n");
+#endif
     }
   }
 

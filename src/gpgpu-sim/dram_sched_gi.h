@@ -1,5 +1,5 @@
-#ifndef __DRAM_SCHED_FRFCFS_H__
-#define __DRAM_SCHED_FRFCFS_H__
+#ifndef __DRAM_SCHED_GI_H__
+#define __DRAM_SCHED_GI_H__
 
 #include <list>
 #include <map>

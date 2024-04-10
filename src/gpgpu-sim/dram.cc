@@ -413,6 +413,11 @@ void dram_t::push(class mem_fetch *data) {
 
     n_pim++;
 
+#ifdef DRAM_VERIFY_MEM_PIM_EXCLUSIVITY
+    m_pim_rows.insert(mrq->row);
+    assert(m_mem_rows.find(mrq->row) == m_mem_rows.end());
+#endif
+
     //warp_inst_t inst = data->get_inst();
     //shd_warp_t *warp = inst.get_warp();
     //printf("PIM WARP %d: IPC = %lf\n", inst.warp_id(), warp->get_ipc());
@@ -426,6 +431,11 @@ void dram_t::push(class mem_fetch *data) {
     for (int i = 0; i < phase_requests.size(); i++) {
       phase_requests[i]++;
     }
+
+#ifdef DRAM_VERIFY_MEM_PIM_EXCLUSIVITY
+    m_mem_rows.insert(mrq->row);
+    assert(m_pim_rows.find(mrq->row) == m_pim_rows.end());
+#endif
 
     //warp_inst_t inst = data->get_inst();
     //shd_warp_t *warp = inst.get_warp();

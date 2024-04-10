@@ -51,6 +51,7 @@
 
 //#define DRAM_VERIFY
 //#define DRAM_SCHED_VERIFY
+//#define DRAM_VERIFY_MEM_PIM_EXCLUSIVITY
 
 enum memory_mode { READ_MODE = 0, WRITE_MODE, PIM_MODE };
 
@@ -296,6 +297,11 @@ class dram_t {
 
   class memory_stats_t *m_stats;
   class Stats *mrqq_Dist;  // memory request queue inside DRAM
+
+#ifdef DRAM_VERIFY_MEM_PIM_EXCLUSIVITY
+  std::set<unsigned> m_mem_rows;
+  std::set<unsigned> m_pim_rows;
+#endif
 
   friend class dram_scheduler;
   friend class frfcfs_scheduler;

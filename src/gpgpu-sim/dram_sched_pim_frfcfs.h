@@ -22,6 +22,9 @@ class pim_frfcfs_scheduler : public dram_scheduler {
   std::vector<unsigned long long> m_bank_pim_waste_time;
   std::vector<unsigned long long> m_bank_pending_mem_requests;
 
+  unsigned long long m_mem2pim_switch_ready_timestamp;
+  std::vector<unsigned long long> m_mem2pim_switch_latency;
+
  private:
   std::list<std::list<dram_req_t *>::iterator> *m_pim_queue_it;
   unsigned m_last_pim_row;

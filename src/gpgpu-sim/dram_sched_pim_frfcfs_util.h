@@ -18,16 +18,23 @@ class pim_frfcfs_util_scheduler : public dram_scheduler {
   dram_req_t *schedule(unsigned bank, unsigned curr_row) override;
   dram_req_t *schedule_pim() override;
 
+  // Stats
   std::vector<unsigned long long> m_bank_pim_stall_time;
   std::vector<unsigned long long> m_bank_pim_waste_time;
+
+  unsigned long long m_mem2pim_switch_ready_timestamp;
+  std::vector<unsigned long long> m_mem2pim_switch_latency;
 
  private:
   std::list<std::list<dram_req_t *>::iterator> *m_pim_queue_it;
   unsigned m_last_pim_row;
 
-  std::vector<unsigned> m_promotion_count;
   std::vector<unsigned long long> m_bank_pending_mem_requests;
   std::vector<bool> m_bank_switch_to_pim;
+
+  unsigned m_num_exec_pim;
+  unsigned m_max_exec_mem_per_bank;
+  std::vector<unsigned> m_num_exec_mem_per_bank;
 };
 
 #endif

@@ -15,6 +15,8 @@ pim_frfcfs_scheduler::pim_frfcfs_scheduler(const memory_config *config,
   m_bank_pim_stall_time.resize(m_config->nbk, 0);
   m_bank_pim_waste_time.resize(m_config->nbk, 0);
   m_bank_pending_mem_requests.resize(m_config->nbk, 0);
+
+  m_mem2pim_switch_ready_timestamp = 0;
 }
 
 void pim_frfcfs_scheduler::add_req(dram_req_t *req) {
@@ -122,6 +124,11 @@ void pim_frfcfs_scheduler::update_mode() {
         if (switch_to_pim) { m_dram->mode = PIM_MODE; }
 
         else if (at_least_one_bank_can_switch) {
+          if (m_mem2pim_switch_ready_timestamp == 0) {
+            m_mem2pim_switch_ready_timestamp = m_dram->m_gpu->gpu_sim_cycle +
+              m_dram->m_gpu->gpu_tot_sim_cycle;
+          }
+
           for (unsigned b = 0; b < m_config->nbk; b++) {
             if (switch_to_pim_bank[b]) {
               m_bank_pim_stall_time[b]++;
@@ -146,6 +153,10 @@ void pim_frfcfs_scheduler::update_mode() {
     } else {
       m_dram->nonpim2pimswitches++;
       m_last_pim_row = 0;
+
+      m_mem2pim_switch_latency.push_back(m_dram->m_gpu->gpu_sim_cycle +
+          m_dram->m_gpu->gpu_tot_sim_cycle - m_mem2pim_switch_ready_timestamp);
+      m_mem2pim_switch_ready_timestamp = 0;
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to PIM mode\n");
 #endif
@@ -190,8 +201,6 @@ dram_req_t *pim_frfcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {
     // a row buffer hit was just favored over a PIM request
     m_promotion_count[bank]++;
   }
-
-  if (m_current_queue[bank].back()->data->is_pim()) {m_promotion_count[bank]++;}
 
   // rowblp stats
   m_dram->access_num++;
@@ -253,9 +262,6 @@ dram_req_t *pim_frfcfs_scheduler::schedule_pim() {
       // a PIM request was just favored over an older MEM request
       m_promotion_count[bank]++;
     }
-
-    // TODO: remove this
-    assert(req == bank_req);
 
     bool rowhit = curr_row == bank_req->row;
     if (!rowhit) { data_collection(bank); }

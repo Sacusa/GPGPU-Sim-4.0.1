@@ -1387,8 +1387,7 @@ void dram_t::print(FILE *simFile) const {
     printf("\nStDevMemWastedCycles = %.6f\n", stdev);
   }
 
-  if ((m_config->scheduler_type == DRAM_PIM_FRFCFS) ||
-      (m_config->scheduler_type == DRAM_PIM_FRFCFS_UTIL)) {
+  if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
     pim_frfcfs_scheduler *sched = (pim_frfcfs_scheduler*) m_scheduler;
 
     printf("\nBank stall time for PIM:\n");
@@ -1400,6 +1399,94 @@ void dram_t::print(FILE *simFile) const {
     for (unsigned b = 0; b < m_config->nbk; b++) {
       printf("Bank_%d_waste_time = %llu\n", b,sched->m_bank_pim_waste_time[b]);
     }
+
+    printf("\nMEM2PIM switch readiness latency:\n");
+
+    double sum = 0;
+    double mean = 0;
+    double sq = 0;
+    double stdev = 0;
+    double max = 0;
+    unsigned long long len = sched->m_mem2pim_switch_latency.size();
+
+    if (len > 0) {
+      sum = std::accumulate(sched->m_mem2pim_switch_latency.begin(),
+          sched->m_mem2pim_switch_latency.end(), 0.0);
+      mean = sum / len;
+      sq = std::inner_product(sched->m_mem2pim_switch_latency.begin(),
+          sched->m_mem2pim_switch_latency.end(),
+          sched->m_mem2pim_switch_latency.begin(), 0.0);
+      stdev = std::sqrt(sq / len - mean * mean);
+      max = *std::max_element(std::begin(sched->m_mem2pim_switch_latency),
+          std::end(sched->m_mem2pim_switch_latency));
+    }
+
+    printf("\nAvgSwitchReadinessLatency = %.6f", mean);
+    printf("\nMaxSwitchReadinessLatency = %.6f", max);
+    printf("\nStDevSwitchReadinessLatency = %.6f", stdev);
+
+    unsigned long long len_non_zeros = len -
+        std::count(sched->m_mem2pim_switch_latency.begin(),
+                sched->m_mem2pim_switch_latency.end(), 0);
+
+    if (len_non_zeros > 0) {
+      mean = sum / len_non_zeros;
+      stdev = std::sqrt(sq / len_non_zeros - mean * mean);
+    }
+
+    printf("\nAvgNonZeroSwitchReadinessLatency = %.6f", mean);
+    printf("\nStDevNonZeroSwitchReadinessLatency = %.6f\n", stdev);
+  }
+
+  if (m_config->scheduler_type == DRAM_PIM_FRFCFS_UTIL) {
+    pim_frfcfs_util_scheduler *sched = (pim_frfcfs_util_scheduler*)m_scheduler;
+
+    printf("\nBank stall time for PIM:\n");
+    for (unsigned b = 0; b < m_config->nbk; b++) {
+      printf("Bank_%d_stall_time = %llu\n", b,sched->m_bank_pim_stall_time[b]);
+    }
+
+    printf("\nBank waste time for PIM:\n");
+    for (unsigned b = 0; b < m_config->nbk; b++) {
+      printf("Bank_%d_waste_time = %llu\n", b,sched->m_bank_pim_waste_time[b]);
+    }
+
+    printf("\nMEM2PIM switch readiness latency:\n");
+
+    double sum = 0;
+    double mean = 0;
+    double sq = 0;
+    double stdev = 0;
+    double max = 0;
+    unsigned long long len = sched->m_mem2pim_switch_latency.size();
+
+    if (len > 0) {
+      sum = std::accumulate(sched->m_mem2pim_switch_latency.begin(),
+          sched->m_mem2pim_switch_latency.end(), 0.0);
+      mean = sum / len;
+      sq = std::inner_product(sched->m_mem2pim_switch_latency.begin(),
+          sched->m_mem2pim_switch_latency.end(),
+          sched->m_mem2pim_switch_latency.begin(), 0.0);
+      stdev = std::sqrt(sq / len - mean * mean);
+      max = *std::max_element(std::begin(sched->m_mem2pim_switch_latency),
+          std::end(sched->m_mem2pim_switch_latency));
+    }
+
+    printf("\nAvgSwitchReadinessLatency = %.6f", mean);
+    printf("\nMaxSwitchReadinessLatency = %.6f", max);
+    printf("\nStDevSwitchReadinessLatency = %.6f", stdev);
+
+    unsigned long long len_non_zeros = len -
+        std::count(sched->m_mem2pim_switch_latency.begin(),
+                sched->m_mem2pim_switch_latency.end(), 0);
+
+    if (len_non_zeros > 0) {
+      mean = sum / len_non_zeros;
+      stdev = std::sqrt(sq / len_non_zeros - mean * mean);
+    }
+
+    printf("\nAvgNonZeroSwitchReadinessLatency = %.6f", mean);
+    printf("\nStDevNonZeroSwitchReadinessLatency = %.6f\n", stdev);
   }
 
   printf("\nDual Bus Interface Util: \n");

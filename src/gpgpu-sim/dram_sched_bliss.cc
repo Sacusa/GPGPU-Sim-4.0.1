@@ -51,7 +51,6 @@ void bliss_scheduler::add_req(dram_req_t *req) {
 }
 
 void bliss_scheduler::update_mode() {
-  unsigned num_mem_pending = m_num_pending;
   enum memory_mode prev_mode = m_dram->mode;
 
   if ((m_dram->m_dram_cycle % m_config->bliss_clearing_interval) == 0) {
@@ -69,53 +68,28 @@ void bliss_scheduler::update_mode() {
     /******************
      * FR-FCFS policy *
      ******************/
+    bool have_reads = m_num_pending > 0;
+    bool have_writes = m_num_write_pending > 0;
+    bool have_mem = have_reads || have_writes;
+    bool have_pim = m_num_pim_pending > 0;
 
-    // Switch to MEM mode if
     if (m_dram->mode == PIM_MODE) {
-      if (m_num_pim_pending == 0) {
-        // 1) There are no more PIM requests and there are MEM requests, or
-        if (num_mem_pending > 0) {
-          m_dram->mode = READ_MODE;
-        }
-      } else {
-        dram_req_t *req = *(m_pim_queue_it[0].back());
-        if (req->row != m_last_pim_row) {
-          for (unsigned b = 0; b < m_config->nbk; b++) {
-            if (!m_queue[b].empty() && !m_queue[b].back()->data->is_pim()) {
-              // 2) PIM has row buffer miss and the oldest request is MEM
-              m_dram->mode = READ_MODE;
-            }
-          }
-        }
+      if (have_mem && !have_pim) {
+        m_dram->mode = READ_MODE;
+        m_dram->pim2nonpimswitches++;
       }
     }
 
-    // Switch to PIM mode if
     else {
-      if (num_mem_pending == 0) {
-        // 1) There are no more MEM requests and there are PIM requests, or
-        if (m_num_pim_pending > 0) {
-          m_dram->mode = PIM_MODE;
-        }
-      } else {
-        bool switch_to_pim = true;
-
-        for (unsigned b = 0; b < m_config->nbk; b++) {
-          switch_to_pim = switch_to_pim && \
-                          !is_next_req_hit(b, m_dram->bk[b]->curr_row,
-                                           m_dram->mode) && \
-                          !m_queue[b].empty() && \
-                          m_queue[b].back()->data->is_pim();
-        }
-
-        // 2) Every bank has a row buffer miss and PIM is the oldest request
-        if (switch_to_pim) { m_dram->mode = PIM_MODE; }
+      if (!have_mem && have_pim) {
+        m_dram->mode = PIM_MODE;
+        m_dram->nonpim2pimswitches++;
       }
     }
   }
 
   else if (is_pim_blacklisted) {
-    if (num_mem_pending > 0) { m_dram->mode = READ_MODE; }
+    if (m_num_pending > 0) { m_dram->mode = READ_MODE; }
     else                     { m_dram->mode = PIM_MODE; }
   }
 

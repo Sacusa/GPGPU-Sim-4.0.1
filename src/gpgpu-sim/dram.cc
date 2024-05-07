@@ -50,6 +50,7 @@
 #include "dram_sched_pim_frfcfs_util.h"
 #include "dram_sched_mem_first.h"
 #include "dram_sched_pim_first.h"
+#include "dram_sched_dyn_thresh.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -234,6 +235,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
       break;
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
+      break;
+    case DRAM_DYN_THRESH:
+      m_scheduler = new dyn_thresh_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");

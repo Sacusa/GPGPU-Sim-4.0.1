@@ -59,7 +59,7 @@ void i3_timer_scheduler::update_mode() {
 
       if (m_finished_batches <= m_config->min_pim_batches) {
         m_non_pim_to_pim_switch_cycle = m_dram->m_dram_cycle + \
-            ((m_config->max_pim_slowdown - 1) * m_pim_batch_dur);
+            (m_config->max_pim_slowdown * m_pim_batch_dur);
       }
     }
 

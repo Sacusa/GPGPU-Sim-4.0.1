@@ -326,6 +326,7 @@ class dram_t {
   friend class pim_frfcfs_util_scheduler;
   friend class mem_first_scheduler;
   friend class pim_first_scheduler;
+  friend class dyn_thresh_scheduler;
 };
 
 #endif /*DRAM_H*/

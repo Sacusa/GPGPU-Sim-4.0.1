@@ -824,9 +824,10 @@ void gpgpu_sim::set_kernel_done(kernel_info_t *kernel) {
       break;
     }
   }
-  assert(k != m_running_kernels.end());
 
-  gpu_print_stat(uid);
+  if (k != m_running_kernels.end()) {
+    gpu_print_stat(uid);
+  }
 }
 
 void gpgpu_sim::stop_all_running_kernels() {

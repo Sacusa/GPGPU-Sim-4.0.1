@@ -18,14 +18,12 @@ class bliss_scheduler : public dram_scheduler {
  public:
   bliss_scheduler(const memory_config *config, dram_t *dm,
                    memory_stats_t *stats);
-  void add_req(dram_req_t *req) override;
   void update_mode() override;
   dram_req_t *schedule(unsigned bank, unsigned curr_row) override;
   dram_req_t *schedule_pim() override;
 
  private:
   std::list<std::list<dram_req_t *>::iterator> *m_pim_queue_it;
-  unsigned m_last_pim_row;
 
   unsigned m_requests_served;
   enum request_type m_prev_request_type;

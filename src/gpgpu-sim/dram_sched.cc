@@ -167,8 +167,6 @@ void dram_scheduler::update_mode() {
   bool have_mem = have_reads || have_writes;
   bool have_pim = m_num_pim_pending > 0;
 
-  enum memory_mode prev_mode = m_dram->mode;
-
   if (m_dram->mode == PIM_MODE) {
     if (have_mem && !have_pim) {
       m_dram->mode = READ_MODE;

@@ -43,6 +43,20 @@ void bliss_scheduler::update_mode() {
     }
   }
 
+  if (prev_mode != m_dram->mode) {
+      if (prev_mode == PIM_MODE) {
+        m_dram->pim2nonpimswitches++;
+#ifdef DRAM_SCHED_VERIFY
+        printf("DRAM: Switching to non-PIM mode\n");
+#endif
+      } else {
+        m_dram->nonpim2pimswitches++;
+#ifdef DRAM_SCHED_VERIFY
+        printf("DRAM: Switching to PIM mode\n");
+#endif
+      }
+  }
+
   // If both/none of the applications are blacklisted, use FR-FCFS
   dram_scheduler::update_mode();
 }

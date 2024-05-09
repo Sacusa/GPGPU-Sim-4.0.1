@@ -1493,6 +1493,20 @@ void dram_t::print(FILE *simFile) const {
     printf("\nStDevNonZeroSwitchReadinessLatency = %.6f\n", stdev);
   }
 
+  if (m_config->scheduler_type == DRAM_BLISS) {
+    bliss_scheduler *sched = (bliss_scheduler*) m_scheduler;
+    printf("\nBlacklist statistics\n");
+    printf("Total cycles = %ull\n", m_dram_cycle);
+    printf("Cycles none blacklisted = %ull\n",
+        sched->m_cycles_none_blacklisted);
+    printf("Cycles both blacklisted = %ull\n",
+        sched->m_cycles_both_blacklisted);
+    printf("Cycles PIM blacklisted = %ull\n",
+        sched->m_cycles_pim_blacklisted);
+    printf("Cycles MEM blacklisted = %ull\n",
+        sched->m_cycles_mem_blacklisted);
+  }
+
   printf("\nDual Bus Interface Util: \n");
   printf("issued_total_row = %llu \n", issued_total_row);
   printf("issued_total_col = %llu \n", issued_total_col);

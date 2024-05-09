@@ -15,6 +15,11 @@ bliss_scheduler::bliss_scheduler(const memory_config *config,
 
   is_pim_blacklisted = false;
   is_mem_blacklisted = false;
+
+  m_cycles_none_blacklisted = 0;
+  m_cycles_both_blacklisted = 0;
+  m_cycles_pim_blacklisted = 0;
+  m_cycles_mem_blacklisted = 0;
 }
 
 void bliss_scheduler::update_mode() {
@@ -35,26 +40,38 @@ void bliss_scheduler::update_mode() {
     if (is_pim_blacklisted) {
       if (m_num_pending > 0)          { m_dram->mode = READ_MODE; }
       else if (m_num_pim_pending > 0) { m_dram->mode = PIM_MODE; }
+
+      m_cycles_pim_blacklisted++;
     }
 
     else {
       if (m_num_pim_pending > 0)  { m_dram->mode = PIM_MODE; }
       else if (m_num_pending > 0) { m_dram->mode = READ_MODE; }
+
+      m_cycles_mem_blacklisted++;
+    }
+  }
+
+  else {
+    if (is_pim_blacklisted) {
+      m_cycles_both_blacklisted++;
+    } else {
+      m_cycles_none_blacklisted++;
     }
   }
 
   if (prev_mode != m_dram->mode) {
-      if (prev_mode == PIM_MODE) {
-        m_dram->pim2nonpimswitches++;
+    if (prev_mode == PIM_MODE) {
+      m_dram->pim2nonpimswitches++;
 #ifdef DRAM_SCHED_VERIFY
-        printf("DRAM: Switching to non-PIM mode\n");
+      printf("DRAM: Switching to non-PIM mode\n");
 #endif
-      } else {
-        m_dram->nonpim2pimswitches++;
+    } else {
+      m_dram->nonpim2pimswitches++;
 #ifdef DRAM_SCHED_VERIFY
-        printf("DRAM: Switching to PIM mode\n");
+      printf("DRAM: Switching to PIM mode\n");
 #endif
-      }
+    }
   }
 
   // If both/none of the applications are blacklisted, use FR-FCFS

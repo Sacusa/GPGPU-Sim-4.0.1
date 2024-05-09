@@ -22,6 +22,12 @@ class bliss_scheduler : public dram_scheduler {
   dram_req_t *schedule(unsigned bank, unsigned curr_row) override;
   dram_req_t *schedule_pim() override;
 
+  // Statistics
+  unsigned long long m_cycles_none_blacklisted;
+  unsigned long long m_cycles_both_blacklisted;
+  unsigned long long m_cycles_pim_blacklisted;
+  unsigned long long m_cycles_mem_blacklisted;
+
  private:
   std::list<std::list<dram_req_t *>::iterator> *m_pim_queue_it;
 

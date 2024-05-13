@@ -153,6 +153,8 @@ class fifo_pipeline {
     }
   }
 
+  fifo_data<T>* get_head() { return m_head; }
+
   bool full() const { return (m_max_len && m_length >= m_max_len); }
   bool is_avilable_size(unsigned size) const {
     return (m_max_len && m_length + size - 1 >= m_max_len);

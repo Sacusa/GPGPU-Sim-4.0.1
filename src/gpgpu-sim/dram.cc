@@ -467,12 +467,10 @@ void dram_t::push(class mem_fetch *data) {
 
 void dram_t::scheduler_fifo() {
   if (!mrqq->empty()) {
-    unsigned int bkn;
     dram_req_t *head_mrqq = mrqq->top();
     head_mrqq->data->set_status(
         IN_PARTITION_MC_BANK_ARB_QUEUE,
         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-    bkn = head_mrqq->bk;
 
     if (head_mrqq->data->is_pim()) {
       if (first_pim_insert_timestamp == 0) {
@@ -497,29 +495,77 @@ void dram_t::scheduler_fifo() {
       if (can_schedule) {
         head_mrqq = mrqq->pop();
         for (unsigned int b = 0; b < m_config->nbk; b++) {
+          if (bk[b]->curr_row == head_mrqq->row) {
+            hits_num++;
+            hits_pim_num++;
+          }
+
           bk[b]->mrq = head_mrqq;
         }
       }
 
       if (mode != PIM_MODE) {
         nonpim2pimswitches++;
+
+        if (!mrqq->empty()) {
+          std::vector<bool> first_req_found(m_config->nbk, false);
+          unsigned num_first_reqs_found = 0;
+
+          fifo_data<dram_req_t>* fifo_it = mrqq->get_head();
+
+          while ((fifo_it != NULL) && (num_first_reqs_found < m_config->nbk)) {
+            dram_req_t *req = fifo_it->m_data;
+            unsigned bkn = req->bk;
+
+            if (!first_req_found[bkn] && !req->data->is_pim()) {
+              if (bk[bkn]->curr_row == req->row) {
+                nonpim2pimswitchconflicts++;
+              }
+
+              first_req_found[bkn] = true;
+              num_first_reqs_found++;
+            }
+
+            fifo_it = fifo_it->m_next;
+          }
+        }
       }
+
       mode = PIM_MODE;
+
+      non_pim_queueing_delay++;
     }
+
     else {
       if (first_non_pim_insert_timestamp == 0) {
         first_non_pim_insert_timestamp = m_gpu->gpu_sim_cycle +
                                          m_gpu->gpu_tot_sim_cycle;
       }
 
+      unsigned bkn = head_mrqq->bk;
+
       if (!bk[bkn]->mrq) {
+        if (bk[bkn]->curr_row == head_mrqq->row) {
+          hits_num++;
+
+          if (head_mrqq->data->is_write()) {
+            hits_write_num++;
+          }
+          else {
+            hits_read_num++;
+          }
+        }
+
         bk[bkn]->mrq = mrqq->pop();
       }
 
       if (mode == PIM_MODE) {
         pim2nonpimswitches++;
       }
+
       mode = READ_MODE;  // Doesn't matter what mode we set to
+
+      pim_queueing_delay++;
     }
   }
 }

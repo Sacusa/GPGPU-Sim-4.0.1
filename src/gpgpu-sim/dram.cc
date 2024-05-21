@@ -153,10 +153,11 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   unsigned max_mrqq = 2;
   if (m_config->scheduler_type == DRAM_FIFO) {
     max_mrqq = m_config->gpgpu_frfcfs_dram_sched_queue_size + \
-               (m_config->seperate_write_queue_enabled ? \
-                m_config->gpgpu_frfcfs_dram_write_queue_size : 0) + \
                m_config->gpgpu_frfcfs_dram_pim_queue_size;
   }
+
+  m_num_pending = 0;
+  m_num_pim_pending = 0;
 
   rwq = new fifo_pipeline<dram_req_t>("rwq", m_config->CL, m_config->CL + 1);
   mrqq = new fifo_pipeline<dram_req_t>("mrqq", 0, max_mrqq);
@@ -311,7 +312,11 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
 
 bool dram_t::full(bool is_write, bool is_pim) const {
   if (m_config->scheduler_type == DRAM_FIFO) {
-    return mrqq->full();
+    if (is_pim) {
+      return m_num_pim_pending >= m_config->gpgpu_frfcfs_dram_pim_queue_size;
+    } else {
+      return m_num_pending >= m_config->gpgpu_frfcfs_dram_sched_queue_size;
+    }
   }
 
   else {
@@ -416,6 +421,7 @@ void dram_t::push(class mem_fetch *data) {
     last_pim_req_insert_cycle = m_dram_cycle;
 
     n_pim++;
+    m_num_pim_pending++;
 
 #ifdef DRAM_VERIFY_MEM_PIM_EXCLUSIVITY
     m_pim_rows.insert(mrq->row);
@@ -431,6 +437,8 @@ void dram_t::push(class mem_fetch *data) {
           last_non_pim_req_insert_cycle);
     }
     last_non_pim_req_insert_cycle = m_dram_cycle;
+
+    m_num_pending++;
 
     for (int i = 0; i < phase_requests.size(); i++) {
       phase_requests[i]++;
@@ -452,6 +460,9 @@ void dram_t::push(class mem_fetch *data) {
   if (m_config->scheduler_type == DRAM_FIFO) {
     max_mrqs_temp = (max_mrqs_temp > mrqq->get_length()) ? max_mrqs_temp
                                                          : mrqq->get_length();
+    max_pim_mrqs_temp = (max_pim_mrqs_temp > m_num_pim_pending) ? \
+                        max_pim_mrqs_temp : \
+                        m_num_pim_pending;
   } else {
     unsigned nreqs = m_scheduler->num_pending() + \
                      m_scheduler->num_write_pending();
@@ -495,6 +506,8 @@ void dram_t::scheduler_fifo() {
       if (can_schedule) {
         head_mrqq = mrqq->pop();
         for (unsigned int b = 0; b < m_config->nbk; b++) {
+          access_num++;
+          pim_num++;
           if (bk[b]->curr_row == head_mrqq->row) {
             hits_num++;
             hits_pim_num++;
@@ -502,6 +515,8 @@ void dram_t::scheduler_fifo() {
 
           bk[b]->mrq = head_mrqq;
         }
+
+        m_num_pim_pending--;
       }
 
       if (mode != PIM_MODE) {
@@ -545,6 +560,13 @@ void dram_t::scheduler_fifo() {
       unsigned bkn = head_mrqq->bk;
 
       if (!bk[bkn]->mrq) {
+        access_num++;
+        if (head_mrqq->data->is_write()) {
+          write_num++;
+        } else {
+          read_num++;
+        }
+
         if (bk[bkn]->curr_row == head_mrqq->row) {
           hits_num++;
 
@@ -557,6 +579,8 @@ void dram_t::scheduler_fifo() {
         }
 
         bk[bkn]->mrq = mrqq->pop();
+
+        m_num_pending--;
       }
 
       if (mode == PIM_MODE) {
@@ -630,6 +654,8 @@ void dram_t::cycle() {
     }
     ave_mrqs += mrqq->get_length();
     ave_mrqs_partial += mrqq->get_length();
+    ave_pim_mrqs += m_num_pim_pending;
+    ave_pim_mrqs_partial += m_num_pim_pending;
   } else {
     unsigned nreqs = m_scheduler->num_pending() + \
                      m_scheduler->num_write_pending();

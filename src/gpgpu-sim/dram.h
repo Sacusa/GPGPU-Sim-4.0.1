@@ -166,6 +166,10 @@ class dram_t {
   void scheduler_fifo();
   void scheduler_frfcfs();
 
+  // Occupancy numbers for FIFO
+  unsigned m_num_pending;
+  unsigned m_num_pim_pending;
+
   bool issue_col_command(int j);
   bool issue_row_command(int j);
 

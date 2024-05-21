@@ -483,6 +483,8 @@ void dram_t::scheduler_fifo() {
         IN_PARTITION_MC_BANK_ARB_QUEUE,
         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
 
+    bool request_issued = false;
+
     if (head_mrqq->data->is_pim()) {
       if (first_pim_insert_timestamp == 0) {
         first_pim_insert_timestamp = m_gpu->gpu_sim_cycle +
@@ -517,6 +519,7 @@ void dram_t::scheduler_fifo() {
         }
 
         m_num_pim_pending--;
+        request_issued = true;
       }
 
       if (mode != PIM_MODE) {
@@ -581,6 +584,7 @@ void dram_t::scheduler_fifo() {
         bk[bkn]->mrq = mrqq->pop();
 
         m_num_pending--;
+        request_issued = true;
       }
 
       if (mode == PIM_MODE) {
@@ -590,6 +594,18 @@ void dram_t::scheduler_fifo() {
       mode = READ_MODE;  // Doesn't matter what mode we set to
 
       pim_queueing_delay++;
+    }
+
+    if (request_issued && m_config->gpgpu_memlatency_stat) {
+      unsigned mrq_latency = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle -
+                             head_mrqq->timestamp;
+      m_stats->tot_mrq_latency += mrq_latency;
+      m_stats->tot_mrq_num++;
+      head_mrqq->timestamp = m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle;
+      m_stats->mrq_lat_table[LOGB2(mrq_latency)]++;
+      if (mrq_latency > m_stats->max_mrq_latency) {
+        m_stats->max_mrq_latency = mrq_latency;
+      }
     }
   }
 }

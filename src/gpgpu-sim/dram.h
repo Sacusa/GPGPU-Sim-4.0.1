@@ -177,6 +177,8 @@ class dram_t {
   bool issue_pim_col_command();
   bool issue_pim_row_command();
 
+  void update_service_latency_stats(dram_req_t *req);
+
   unsigned int RRDc;
   unsigned int CCDc;
   unsigned int RTWc;  // read to write penalty applies across banks

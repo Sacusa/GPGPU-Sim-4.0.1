@@ -91,10 +91,25 @@ memory_stats_t::memory_stats_t(unsigned n_shader,
   max_mf_latency = 0;
   max_icnt2mem_latency = 0;
   max_icnt2sh_latency = 0;
+  max_dram_service_latency = 0;
   tot_icnt2mem_latency = 0;
   tot_icnt2sh_latency = 0;
   tot_mrq_num = 0;
   tot_mrq_latency = 0;
+  tot_dram_service_latency = 0;
+
+  max_non_pim_mrq_latency = 0;
+  max_non_pim_dram_service_latency = 0;
+  tot_non_pim_mrq_latency = 0;
+  tot_non_pim_dram_service_latency = 0;
+  tot_non_pim_mrq_num = 0;
+
+  max_pim_mrq_latency = 0;
+  max_pim_dram_service_latency = 0;
+  tot_pim_mrq_latency = 0;
+  tot_pim_dram_service_latency = 0;
+  tot_pim_mrq_num = 0;
+
   memset(mrq_lat_table, 0, sizeof(unsigned) * 32);
   memset(dq_lat_table, 0, sizeof(unsigned) * 32);
   memset(mf_lat_table, 0, sizeof(unsigned) * 32);
@@ -277,18 +292,46 @@ void memory_stats_t::memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk) {
   if (m_memory_config->gpgpu_memlatency_stat) {
     printf("maxmflatency = %d \n", max_mf_latency);
     printf("max_icnt2mem_latency = %d \n", max_icnt2mem_latency);
-    printf("maxmrqlatency = %d \n", max_mrq_latency);
     // printf("maxdqlatency = %d \n", max_dq_latency);
     printf("max_icnt2sh_latency = %d \n", max_icnt2sh_latency);
     if (num_mfs) {
       printf("averagemflatency = %lld \n", mf_total_lat / num_mfs);
       printf("avg_icnt2mem_latency = %lld \n", tot_icnt2mem_latency / num_mfs);
-      if (tot_mrq_num)
-        printf("avg_mrq_latency = %lld \n", tot_mrq_latency / tot_mrq_num);
-
       printf("avg_icnt2sh_latency = %lld \n", tot_icnt2sh_latency / num_mfs);
     }
-    printf("mrq_lat_table:");
+
+    printf("\nmaxmrqlatency = %d \n", max_mrq_latency);
+    printf("max_dram_service_latency = %d\n", max_dram_service_latency);
+    if (tot_mrq_num) {
+      printf("avg_mrq_latency = %lld \n", tot_mrq_latency / tot_mrq_num);
+      printf("avg_dram_service_latency = %lld\n", tot_dram_service_latency /\
+          tot_mrq_num);
+      printf("tot_mrq_num = %lld\n", tot_mrq_num);
+    }
+
+    printf("\nmax_non_pim_mrq_latency = %lld\n", max_non_pim_mrq_latency);
+    printf("max_non_pim_dram_service_latency = %lld\n",
+        max_non_pim_dram_service_latency);
+    if (tot_non_pim_mrq_num) {
+      printf("avg_non_pim_mrq_latency = %lld\n", tot_non_pim_mrq_latency / \
+          tot_non_pim_mrq_num);
+      printf("avg_non_pim_dram_service_latency = %lld\n",
+          tot_non_pim_dram_service_latency / tot_non_pim_mrq_num);
+      printf("tot_non_pim_mrq_num = %lld\n", tot_non_pim_mrq_num);
+    }
+
+    printf("\nmax_pim_mrq_latency = %lld\n", max_pim_mrq_latency);
+    printf("max_pim_dram_service_latency = %lld\n",
+        max_pim_dram_service_latency);
+    if (tot_pim_mrq_num) {
+      printf("avg_pim_mrq_latency = %lld\n", tot_pim_mrq_latency / \
+          tot_pim_mrq_num);
+      printf("avg_pim_dram_service_latency = %lld\n",
+          tot_pim_dram_service_latency / tot_pim_mrq_num);
+      printf("tot_pim_mrq_num = %lld\n", tot_pim_mrq_num);
+    }
+
+    printf("\nmrq_lat_table:");
     for (i = 0; i < 32; i++) {
       printf("%d \t", mrq_lat_table[i]);
     }

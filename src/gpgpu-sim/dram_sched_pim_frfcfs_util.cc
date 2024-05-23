@@ -112,6 +112,7 @@ void pim_frfcfs_util_scheduler::update_mode() {
           m_dram->mode = PIM_MODE;
         }
       } else {
+        // 3) Every bank has a row buffer miss and PIM is the oldest request
         bool switch_to_pim = true;
 
         bool at_least_one_bank_can_switch = false;
@@ -129,7 +130,6 @@ void pim_frfcfs_util_scheduler::update_mode() {
                                          m_bank_switch_to_pim[b];
         }
 
-        // 3) Every bank has a row buffer miss and PIM is the oldest request
         if (switch_to_pim) { m_dram->mode = PIM_MODE; }
 
         else if (at_least_one_bank_can_switch) {

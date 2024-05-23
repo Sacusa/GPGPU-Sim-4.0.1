@@ -62,9 +62,11 @@ class memory_stats_t {
   unsigned max_dq_latency;
   unsigned max_mf_latency;
   unsigned max_icnt2mem_latency;
+  unsigned max_dram_service_latency;
   unsigned long long int tot_icnt2mem_latency;
   unsigned long long int tot_icnt2sh_latency;
   unsigned long long int tot_mrq_latency;
+  unsigned long long int tot_dram_service_latency;
   unsigned long long int tot_mrq_num;
   unsigned max_icnt2sh_latency;
   unsigned mrq_lat_table[32];
@@ -74,6 +76,19 @@ class memory_stats_t {
   unsigned icnt2sh_lat_table[24];
   unsigned mf_lat_pw_table[32];  // table storing values of mf latency Per
                                  // Window
+
+  // Queuing and service latency for PIM/MEM requests
+  unsigned max_non_pim_mrq_latency;
+  unsigned max_non_pim_dram_service_latency;
+  unsigned max_pim_mrq_latency;
+  unsigned max_pim_dram_service_latency;
+  unsigned long long int tot_non_pim_mrq_latency;
+  unsigned long long int tot_non_pim_dram_service_latency;
+  unsigned long long int tot_non_pim_mrq_num;
+  unsigned long long int tot_pim_mrq_latency;
+  unsigned long long int tot_pim_dram_service_latency;
+  unsigned long long int tot_pim_mrq_num;
+
   unsigned mf_num_lat_pw;
   unsigned max_warps;
   unsigned mf_tot_lat_pw;  // total latency summed up per window. divide by

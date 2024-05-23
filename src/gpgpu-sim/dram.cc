@@ -601,6 +601,21 @@ void dram_t::scheduler_fifo() {
                              head_mrqq->timestamp;
       m_stats->tot_mrq_latency += mrq_latency;
       m_stats->tot_mrq_num++;
+
+      if (head_mrqq->data->is_pim()) {
+        m_stats->tot_pim_mrq_latency += mrq_latency;
+        m_stats->tot_pim_mrq_num++;
+        if (mrq_latency > m_stats->max_pim_mrq_latency) {
+          m_stats->max_pim_mrq_latency = mrq_latency;
+        }
+      } else {
+        m_stats->tot_non_pim_mrq_latency += mrq_latency;
+        m_stats->tot_non_pim_mrq_num++;
+        if (mrq_latency > m_stats->max_non_pim_mrq_latency) {
+          m_stats->max_non_pim_mrq_latency = mrq_latency;
+        }
+      }
+
       head_mrqq->timestamp = m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle;
       m_stats->mrq_lat_table[LOGB2(mrq_latency)]++;
       if (mrq_latency > m_stats->max_mrq_latency) {
@@ -1019,6 +1034,7 @@ bool dram_t::issue_col_command(int j) {
 #endif
       // transfer done
       if (!(bk[j]->mrq->txbytes < bk[j]->mrq->nbytes)) {
+        update_service_latency_stats(bk[j]->mrq);
         bk[j]->mrq = NULL;
       }
     } else
@@ -1054,6 +1070,7 @@ bool dram_t::issue_col_command(int j) {
 #endif
       // transfer done
       if (!(bk[j]->mrq->txbytes < bk[j]->mrq->nbytes)) {
+        update_service_latency_stats(bk[j]->mrq);
         bk[j]->mrq = NULL;
       }
     }
@@ -1133,6 +1150,8 @@ bool dram_t::issue_pim_col_command() {
       rwq->set_min_length(m_config->WL);
     }
     rwq->push(bk[0]->mrq);
+
+    update_service_latency_stats(bk[0]->mrq);
 
     for (unsigned j = 0; j < m_config->nbk; j++) {
       unsigned grp = get_bankgrp_number(j);
@@ -1242,6 +1261,29 @@ bool dram_t::issue_pim_row_command() {
   }
 
   return can_issue;
+}
+
+void dram_t::update_service_latency_stats(dram_req_t *req) {
+  unsigned service_latency = m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle -\
+                             req->timestamp;
+  bool is_pim = req->data->is_pim();
+
+  m_stats->tot_dram_service_latency += service_latency;
+  if (service_latency > m_stats->max_dram_service_latency) {
+    m_stats->max_dram_service_latency = service_latency;
+  }
+
+  if (is_pim) {
+    m_stats->tot_pim_dram_service_latency += service_latency;
+    if (service_latency > m_stats->max_pim_dram_service_latency) {
+      m_stats->max_pim_dram_service_latency = service_latency;
+    }
+  } else {
+    m_stats->tot_non_pim_dram_service_latency += service_latency;
+    if (service_latency > m_stats->max_non_pim_dram_service_latency) {
+      m_stats->max_non_pim_dram_service_latency = service_latency;
+    }
+  }
 }
 
 // if mrq is being serviced by dram, gets popped after CL latency fulfilled

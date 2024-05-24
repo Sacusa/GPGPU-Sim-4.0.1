@@ -599,28 +599,19 @@ void dram_t::scheduler_fifo() {
     if (request_issued && m_config->gpgpu_memlatency_stat) {
       unsigned mrq_latency = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle -
                              head_mrqq->timestamp;
-      m_stats->tot_mrq_latency += mrq_latency;
+      m_stats->mrq_latency.push_back(mrq_latency);
       m_stats->tot_mrq_num++;
 
       if (head_mrqq->data->is_pim()) {
-        m_stats->tot_pim_mrq_latency += mrq_latency;
+        m_stats->pim_mrq_latency.push_back(mrq_latency);
         m_stats->tot_pim_mrq_num++;
-        if (mrq_latency > m_stats->max_pim_mrq_latency) {
-          m_stats->max_pim_mrq_latency = mrq_latency;
-        }
       } else {
-        m_stats->tot_non_pim_mrq_latency += mrq_latency;
+        m_stats->non_pim_mrq_latency.push_back(mrq_latency);
         m_stats->tot_non_pim_mrq_num++;
-        if (mrq_latency > m_stats->max_non_pim_mrq_latency) {
-          m_stats->max_non_pim_mrq_latency = mrq_latency;
-        }
       }
 
       head_mrqq->timestamp = m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle;
       m_stats->mrq_lat_table[LOGB2(mrq_latency)]++;
-      if (mrq_latency > m_stats->max_mrq_latency) {
-        m_stats->max_mrq_latency = mrq_latency;
-      }
     }
   }
 }
@@ -1268,21 +1259,12 @@ void dram_t::update_service_latency_stats(dram_req_t *req) {
                              req->timestamp;
   bool is_pim = req->data->is_pim();
 
-  m_stats->tot_dram_service_latency += service_latency;
-  if (service_latency > m_stats->max_dram_service_latency) {
-    m_stats->max_dram_service_latency = service_latency;
-  }
+  m_stats->dram_service_latency.push_back(service_latency);
 
   if (is_pim) {
-    m_stats->tot_pim_dram_service_latency += service_latency;
-    if (service_latency > m_stats->max_pim_dram_service_latency) {
-      m_stats->max_pim_dram_service_latency = service_latency;
-    }
+    m_stats->pim_dram_service_latency.push_back(service_latency);
   } else {
-    m_stats->tot_non_pim_dram_service_latency += service_latency;
-    if (service_latency > m_stats->max_non_pim_dram_service_latency) {
-      m_stats->max_non_pim_dram_service_latency = service_latency;
-    }
+    m_stats->non_pim_dram_service_latency.push_back(service_latency);
   }
 }
 

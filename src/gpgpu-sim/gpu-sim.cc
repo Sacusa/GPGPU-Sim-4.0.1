@@ -1999,7 +1999,10 @@ void gpgpu_sim::cycle() {
         if (m_config.gpu_runtime_stat_flag & GPU_RSTAT_BW_STAT) {
           for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
             m_memory_partition_unit[i]->print_stat(stdout);
-          printf("maxmrqlatency = %d \n", m_memory_stats->max_mrq_latency);
+          unsigned max_mrq_latency = *std::max_element(
+              std::begin(m_memory_stats->mrq_latency),
+              std::end(m_memory_stats->mrq_latency));
+          printf("maxmrqlatency = %d \n", max_mrq_latency);
           printf("maxmflatency = %d \n", m_memory_stats->max_mf_latency);
         }
         if (m_config.gpu_runtime_stat_flag & GPU_RSTAT_SHD_INFO)

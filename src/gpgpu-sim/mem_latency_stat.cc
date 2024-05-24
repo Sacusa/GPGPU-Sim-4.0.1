@@ -39,6 +39,7 @@
 #include "stat-tool.h"
 #include "visualizer.h"
 
+#include <algorithm>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,28 +87,14 @@ memory_stats_t::memory_stats_t(unsigned n_shader,
   total_n_reads = 0;
   total_n_writes = 0;
   total_n_pim = 0;
-  max_mrq_latency = 0;
   max_dq_latency = 0;
   max_mf_latency = 0;
   max_icnt2mem_latency = 0;
   max_icnt2sh_latency = 0;
-  max_dram_service_latency = 0;
   tot_icnt2mem_latency = 0;
   tot_icnt2sh_latency = 0;
   tot_mrq_num = 0;
-  tot_mrq_latency = 0;
-  tot_dram_service_latency = 0;
-
-  max_non_pim_mrq_latency = 0;
-  max_non_pim_dram_service_latency = 0;
-  tot_non_pim_mrq_latency = 0;
-  tot_non_pim_dram_service_latency = 0;
   tot_non_pim_mrq_num = 0;
-
-  max_pim_mrq_latency = 0;
-  max_pim_dram_service_latency = 0;
-  tot_pim_mrq_latency = 0;
-  tot_pim_dram_service_latency = 0;
   tot_pim_mrq_num = 0;
 
   memset(mrq_lat_table, 0, sizeof(unsigned) * 32);
@@ -284,6 +271,22 @@ void memory_stats_t::memlatstat_lat_pw() {
   }
 }
 
+std::vector<double> gen_stats(std::vector<unsigned> v) {
+  unsigned len = v.size();
+  double sum = std::accumulate(v.begin(), v.end(), 0.0);
+  double mean = sum / len;
+  double sq_sum = std::inner_product(v.begin(), v.end(), v.begin(), 0.0);
+  double stdev = std::sqrt(sq_sum / len - mean * mean);
+  double max = *std::max_element(std::begin(v), std::end(v));
+
+  std::vector<double> stats;
+  stats.push_back(mean);
+  stats.push_back(stdev);
+  stats.push_back(max);
+
+  return stats;
+}
+
 void memory_stats_t::memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk) {
   unsigned i, j, k, l, m;
   unsigned max_bank_accesses, min_bank_accesses, max_chip_accesses,
@@ -300,34 +303,42 @@ void memory_stats_t::memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk) {
       printf("avg_icnt2sh_latency = %lld \n", tot_icnt2sh_latency / num_mfs);
     }
 
-    printf("\nmaxmrqlatency = %d \n", max_mrq_latency);
-    printf("max_dram_service_latency = %d\n", max_dram_service_latency);
     if (tot_mrq_num) {
-      printf("avg_mrq_latency = %lld \n", tot_mrq_latency / tot_mrq_num);
-      printf("avg_dram_service_latency = %lld\n", tot_dram_service_latency /\
-          tot_mrq_num);
+      std::vector<double> mrq_stats = gen_stats(mrq_latency);
+      std::vector<double> dram_stats = gen_stats(dram_service_latency);
+
+      printf("\nmaxmrqlatency = %lf \n", mrq_stats[2]);
+      printf("max_dram_service_latency = %lf\n", dram_stats[2]);
+      printf("avg_mrq_latency = %lf \n", mrq_stats[0]);
+      printf("avg_dram_service_latency = %lf\n", dram_stats[0]);
+      printf("stdev_mrq_latency = %lf \n", mrq_stats[1]);
+      printf("stdev_dram_service_latency = %lf\n", dram_stats[1]);
       printf("tot_mrq_num = %lld\n", tot_mrq_num);
     }
 
-    printf("\nmax_non_pim_mrq_latency = %lld\n", max_non_pim_mrq_latency);
-    printf("max_non_pim_dram_service_latency = %lld\n",
-        max_non_pim_dram_service_latency);
     if (tot_non_pim_mrq_num) {
-      printf("avg_non_pim_mrq_latency = %lld\n", tot_non_pim_mrq_latency / \
-          tot_non_pim_mrq_num);
-      printf("avg_non_pim_dram_service_latency = %lld\n",
-          tot_non_pim_dram_service_latency / tot_non_pim_mrq_num);
+      std::vector<double> mrq_stats = gen_stats(non_pim_mrq_latency);
+      std::vector<double> dram_stats = gen_stats(non_pim_dram_service_latency);
+
+      printf("\nmax_non_pim_mrq_latency = %lf\n", mrq_stats[2]);
+      printf("max_non_pim_dram_service_latency = %lf\n", dram_stats[2]);
+      printf("avg_non_pim_mrq_latency = %lf\n", mrq_stats[0]);
+      printf("avg_non_pim_dram_service_latency = %lf\n", dram_stats[0]);
+      printf("stdev_non_pim_mrq_latency = %lf \n", mrq_stats[1]);
+      printf("stdev_non_pim_dram_service_latency = %lf\n", dram_stats[1]);
       printf("tot_non_pim_mrq_num = %lld\n", tot_non_pim_mrq_num);
     }
 
-    printf("\nmax_pim_mrq_latency = %lld\n", max_pim_mrq_latency);
-    printf("max_pim_dram_service_latency = %lld\n",
-        max_pim_dram_service_latency);
     if (tot_pim_mrq_num) {
-      printf("avg_pim_mrq_latency = %lld\n", tot_pim_mrq_latency / \
-          tot_pim_mrq_num);
-      printf("avg_pim_dram_service_latency = %lld\n",
-          tot_pim_dram_service_latency / tot_pim_mrq_num);
+      std::vector<double> mrq_stats = gen_stats(pim_mrq_latency);
+      std::vector<double> dram_stats = gen_stats(pim_dram_service_latency);
+
+      printf("\nmax_pim_mrq_latency = %lf\n", mrq_stats[2]);
+      printf("max_pim_dram_service_latency = %lf\n", dram_stats[2]);
+      printf("avg_pim_mrq_latency = %lf\n", mrq_stats[0]);
+      printf("avg_pim_dram_service_latency = %lf\n", dram_stats[0]);
+      printf("stdev_pim_mrq_latency = %lf \n", mrq_stats[1]);
+      printf("stdev_pim_dram_service_latency = %lf\n", dram_stats[1]);
       printf("tot_pim_mrq_num = %lld\n", tot_pim_mrq_num);
     }
 

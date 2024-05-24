@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <zlib.h>
 #include <map>
+#include <vector>
 
 class memory_config;
 class memory_stats_t {
@@ -58,16 +59,14 @@ class memory_stats_t {
   const memory_config *m_memory_config;
   const class gpgpu_sim *m_gpu;
 
-  unsigned max_mrq_latency;
   unsigned max_dq_latency;
   unsigned max_mf_latency;
   unsigned max_icnt2mem_latency;
-  unsigned max_dram_service_latency;
   unsigned long long int tot_icnt2mem_latency;
   unsigned long long int tot_icnt2sh_latency;
-  unsigned long long int tot_mrq_latency;
-  unsigned long long int tot_dram_service_latency;
   unsigned long long int tot_mrq_num;
+  std::vector<unsigned> mrq_latency;
+  std::vector<unsigned> dram_service_latency;
   unsigned max_icnt2sh_latency;
   unsigned mrq_lat_table[32];
   unsigned dq_lat_table[32];
@@ -78,15 +77,11 @@ class memory_stats_t {
                                  // Window
 
   // Queuing and service latency for PIM/MEM requests
-  unsigned max_non_pim_mrq_latency;
-  unsigned max_non_pim_dram_service_latency;
-  unsigned max_pim_mrq_latency;
-  unsigned max_pim_dram_service_latency;
-  unsigned long long int tot_non_pim_mrq_latency;
-  unsigned long long int tot_non_pim_dram_service_latency;
+  std::vector<unsigned> non_pim_mrq_latency;
+  std::vector<unsigned> non_pim_dram_service_latency;
+  std::vector<unsigned> pim_mrq_latency;
+  std::vector<unsigned> pim_dram_service_latency;
   unsigned long long int tot_non_pim_mrq_num;
-  unsigned long long int tot_pim_mrq_latency;
-  unsigned long long int tot_pim_dram_service_latency;
   unsigned long long int tot_pim_mrq_num;
 
   unsigned mf_num_lat_pw;

@@ -416,28 +416,19 @@ void dram_t::scheduler_frfcfs() {
     if (m_config->gpgpu_memlatency_stat) {
       unsigned mrq_latency = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle -
                              req->timestamp;
-      m_stats->tot_mrq_latency += mrq_latency;
+      m_stats->mrq_latency.push_back(mrq_latency);
       m_stats->tot_mrq_num++;
 
       if (req->data->is_pim()) {
-        m_stats->tot_pim_mrq_latency += mrq_latency;
+        m_stats->pim_mrq_latency.push_back(mrq_latency);
         m_stats->tot_pim_mrq_num++;
-        if (mrq_latency > m_stats->max_pim_mrq_latency) {
-          m_stats->max_pim_mrq_latency = mrq_latency;
-        }
       } else {
-        m_stats->tot_non_pim_mrq_latency += mrq_latency;
+        m_stats->non_pim_mrq_latency.push_back(mrq_latency);
         m_stats->tot_non_pim_mrq_num++;
-        if (mrq_latency > m_stats->max_non_pim_mrq_latency) {
-          m_stats->max_non_pim_mrq_latency = mrq_latency;
-        }
       }
 
       req->timestamp = m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle;
       m_stats->mrq_lat_table[LOGB2(mrq_latency)]++;
-      if (mrq_latency > m_stats->max_mrq_latency) {
-        m_stats->max_mrq_latency = mrq_latency;
-      }
     }
   }
 }

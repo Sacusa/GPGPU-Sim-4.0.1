@@ -399,6 +399,8 @@ dram_req_t::dram_req_t(class mem_fetch *mf, unsigned banks,
   addr = mf->get_addr();
   insertion_time = (unsigned)m_gpu->gpu_sim_cycle;
   rw = data->get_is_write() ? WRITE : READ;
+
+  artificial_wait_time = 0;
 }
 
 void dram_t::push(class mem_fetch *data) {
@@ -991,6 +993,12 @@ bool dram_t::issue_col_command(int j) {
   bool issued = false;
   unsigned grp = get_bankgrp_number(j);
   if (bk[j]->mrq) {  // if currently servicing a memory request
+    if (bk[j]->mrq->artificial_wait_time < \
+        m_config->dram_artificial_wait_time) {
+      bk[j]->mrq->artificial_wait_time++;
+      return issued;
+    }
+
     bk[j]->mrq->data->set_status(
         IN_PARTITION_DRAM, m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
     // correct row activated for a READ
@@ -1074,6 +1082,12 @@ bool dram_t::issue_row_command(int j) {
   bool issued = false;
   unsigned grp = get_bankgrp_number(j);
   if (bk[j]->mrq) {  // if currently servicing a memory request
+    if (bk[j]->mrq->artificial_wait_time < \
+        m_config->dram_artificial_wait_time) {
+      bk[j]->mrq->artificial_wait_time++;
+      return issued;
+    }
+
     bk[j]->mrq->data->set_status(
         IN_PARTITION_DRAM, m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
     //     bank is idle
@@ -1122,6 +1136,12 @@ bool dram_t::issue_row_command(int j) {
 }
 
 bool dram_t::issue_pim_col_command() {
+  if (bk[0]->mrq->artificial_wait_time < \
+      m_config->dram_artificial_wait_time) {
+    bk[0]->mrq->artificial_wait_time++;
+    return false;
+  }
+
   bool can_issue = true;
 
   for (int j = 0; j < m_config->nbk; j++) {
@@ -1175,6 +1195,12 @@ bool dram_t::issue_pim_col_command() {
 }
 
 bool dram_t::issue_pim_row_command() {
+  if (bk[0]->mrq->artificial_wait_time < \
+      m_config->dram_artificial_wait_time) {
+    bk[0]->mrq->artificial_wait_time++;
+    return false;
+  }
+
   bool can_issue = false;
 
   std::vector<unsigned> precharge_banks;

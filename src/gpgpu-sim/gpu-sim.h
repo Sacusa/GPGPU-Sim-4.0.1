@@ -351,6 +351,8 @@ class memory_config {
   float dram_sched_queue_mem_time_ratio_low;
   float dram_sched_queue_max_pim_batches;
 
+  unsigned dram_artificial_wait_time;
+
   gpgpu_context *gpgpu_ctx;
 };
 

@@ -241,6 +241,10 @@ void memory_config::reg_options(class OptionParser *opp) {
       OPT_UINT32, &dram_sched_queue_max_pim_batches,
       "DRAM Queue scheduler num_pim_batches upper limit", "8");
 
+  option_parser_register(opp, "-dram_artificial_wait_time", OPT_UINT32,
+      &dram_artificial_wait_time,
+      "Artificial wait time for each DRAM request", "0");
+
   m_address_mapping.addrdec_setoption(opp);
 }
 

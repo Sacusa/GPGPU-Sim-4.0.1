@@ -69,11 +69,13 @@ void pim_frfcfs_util_scheduler::update_mode() {
     if (threshold_exceeded && (m_num_pending > 0)) {
       // 1) Executed PIM requests have crossed a threshold, or
       m_dram->mode = READ_MODE;
+      m_pim2mem_switch_reason.push_back(CAP_EXCEEDED);
     } else {
       if (m_num_pim_pending == 0) {
         // 2) There are no more PIM requests and there are MEM requests, or
         if (m_num_pending > 0) {
           m_dram->mode = READ_MODE;
+          m_pim2mem_switch_reason.push_back(OUT_OF_REQUESTS);
         }
       } else {
         dram_req_t *req = *(m_pim_queue_it[0].back());
@@ -82,6 +84,8 @@ void pim_frfcfs_util_scheduler::update_mode() {
             if (!m_queue[b].empty() && !m_queue[b].back()->data->is_pim()) {
               // 3) PIM has row buffer miss and the oldest request is MEM
               m_dram->mode = READ_MODE;
+              m_pim2mem_switch_reason.push_back(OLDEST_FIRST);
+              break;
             }
           }
         }
@@ -105,11 +109,13 @@ void pim_frfcfs_util_scheduler::update_mode() {
     if (threshold_exceeded && (m_num_pim_pending > 0)) {
       // 1) Executed MEM requests have crossed a threshold, or
       m_dram->mode = PIM_MODE;
+      m_mem2pim_switch_reason.push_back(CAP_EXCEEDED);
     } else {
       if (m_num_pending == 0) {
         // 2) There are no more MEM requests and there are PIM requests, or
         if (m_num_pim_pending > 0) {
           m_dram->mode = PIM_MODE;
+          m_mem2pim_switch_reason.push_back(OUT_OF_REQUESTS);
         }
       } else {
         // 3) Every bank has a row buffer miss and PIM is the oldest request
@@ -130,7 +136,10 @@ void pim_frfcfs_util_scheduler::update_mode() {
                                          m_bank_switch_to_pim[b];
         }
 
-        if (switch_to_pim) { m_dram->mode = PIM_MODE; }
+        if (switch_to_pim) {
+            m_dram->mode = PIM_MODE;
+            m_mem2pim_switch_reason.push_back(OLDEST_FIRST);
+        }
 
         else if (at_least_one_bank_can_switch) {
           if (m_mem2pim_switch_ready_timestamp == 0) {
@@ -155,14 +164,19 @@ void pim_frfcfs_util_scheduler::update_mode() {
     if (prev_mode == PIM_MODE) {
       m_dram->pim2nonpimswitches++;
 
+      m_pim_requests_issued.push_back(m_num_exec_pim);  // Stat
+
       m_last_pim_row = 0;
-      m_num_exec_pim = 0;
 
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to non-PIM mode\n");
 #endif
     } else {
       m_dram->nonpim2pimswitches++;
+
+      m_max_mem_requests_issued_at_any_bank.push_back(*max_element(
+                  m_num_exec_mem_per_bank.begin(),
+                  m_num_exec_mem_per_bank.end()));  // Stat
 
       std::fill(m_bank_switch_to_pim.begin(), m_bank_switch_to_pim.end(),
           false);
@@ -173,9 +187,13 @@ void pim_frfcfs_util_scheduler::update_mode() {
       std::fill(m_num_exec_mem_per_bank.begin(), m_num_exec_mem_per_bank.end(),
           0);
 
+      m_num_exec_pim = 0;
+
       m_mem2pim_switch_latency.push_back(m_dram->m_gpu->gpu_sim_cycle +
           m_dram->m_gpu->gpu_tot_sim_cycle - m_mem2pim_switch_ready_timestamp);
       m_mem2pim_switch_ready_timestamp = 0;
+
+      m_mem_cap.push_back(m_max_exec_mem_per_bank);  // Stat
 
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to PIM mode\n");

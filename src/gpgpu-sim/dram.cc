@@ -1136,8 +1136,8 @@ bool dram_t::issue_row_command(int j) {
 }
 
 bool dram_t::issue_pim_col_command() {
-  if (bk[0]->mrq->artificial_wait_time < \
-      m_config->dram_artificial_wait_time) {
+  if (bk[0]->mrq && (bk[0]->mrq->artificial_wait_time < \
+      m_config->dram_artificial_wait_time)) {
     bk[0]->mrq->artificial_wait_time++;
     return false;
   }
@@ -1195,8 +1195,8 @@ bool dram_t::issue_pim_col_command() {
 }
 
 bool dram_t::issue_pim_row_command() {
-  if (bk[0]->mrq->artificial_wait_time < \
-      m_config->dram_artificial_wait_time) {
+  if (bk[0]->mrq && (bk[0]->mrq->artificial_wait_time < \
+      m_config->dram_artificial_wait_time)) {
     bk[0]->mrq->artificial_wait_time++;
     return false;
   }
@@ -1301,6 +1301,31 @@ class mem_fetch *dram_t::return_queue_pop() {
 
 class mem_fetch *dram_t::return_queue_top() {
   return returnq->top();
+}
+
+template <class T>
+std::vector<T> get_stats(std::vector<T> *v) {
+  double sum = 0;
+  double mean = 0;
+  double sq = 0;
+  double stdev = 0;
+  double max = 0;
+  unsigned long long len = v->size();
+
+  if (len > 0) {
+    sum = std::accumulate(v->begin(), v->end(), 0.0);
+    mean = sum / len;
+    sq = std::inner_product(v->begin(), v->end(), v->begin(), 0.0);
+    stdev = std::sqrt(sq / len - mean * mean);
+    max = *std::max_element(std::begin(*v), std::end(*v));
+  }
+
+  std::vector<T> retval;
+  retval.push_back((T) mean);
+  retval.push_back((T) stdev);
+  retval.push_back((T) max);
+
+  return retval;
 }
 
 void dram_t::print(FILE *simFile) const {
@@ -1453,80 +1478,31 @@ void dram_t::print(FILE *simFile) const {
 
     sched->finalize_stats();
 
-    double sum = 0;
-    double mean = 0;
-    double sq = 0;
-    double stdev = 0;
-    double max = 0;
-    unsigned long long len = sched->m_pim_batch_exec_time.size();
+    std::vector<unsigned long long> stats = get_stats<unsigned long long>(
+        &(sched->m_pim_batch_exec_time));
 
-    if (len > 0) {
-      sum = std::accumulate(sched->m_pim_batch_exec_time.begin(),
-          sched->m_pim_batch_exec_time.end(), 0.0);
-      mean = sum / len;
-      sq = std::inner_product(sched->m_pim_batch_exec_time.begin(),
-          sched->m_pim_batch_exec_time.end(),
-          sched->m_pim_batch_exec_time.begin(), 0.0);
-      stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_pim_batch_exec_time),
-          std::end(sched->m_pim_batch_exec_time));
-    }
+    printf("\nAvgPimBatchExecTime = %u", stats[0]);
+    printf("\nMaxPimBatchExecTime = %u", stats[2]);
+    printf("\nStDevPimBatchExecTime = %u", stats[1]);
 
-    printf("\nAvgPimBatchExecTime = %.6f", mean);
-    printf("\nMaxPimBatchExecTime = %.6f", max);
-    printf("\nStDevPimBatchExecTime = %.6f", stdev);
-
+    unsigned len = sched->m_pim_batch_exec_time.size();
     double avg_batch_size = 0;
     if (len > 0) { avg_batch_size = n_pim / len; }
     printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
 
     // MEM batch execution time
-    sum = 0;
-    mean = 0;
-    sq = 0;
-    stdev = 0;
-    max = 0;
-    len = sched->m_mem_batch_exec_time.size();
+    stats = get_stats<unsigned long long>(&(sched->m_mem_batch_exec_time));
 
-    if (len > 0) {
-      sum = std::accumulate(sched->m_mem_batch_exec_time.begin(),
-          sched->m_mem_batch_exec_time.end(), 0.0);
-      mean = sum / len;
-      sq = std::inner_product(sched->m_mem_batch_exec_time.begin(),
-          sched->m_mem_batch_exec_time.end(),
-          sched->m_mem_batch_exec_time.begin(), 0.0);
-      stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_mem_batch_exec_time),
-          std::end(sched->m_mem_batch_exec_time));
-    }
-
-    printf("\nAvgMemBatchExecTime = %.6f", mean);
-    printf("\nMaxMemBatchExecTime = %.6f", max);
-    printf("\nStDevMemBatchExecTime = %.6f\n", stdev);
+    printf("\nAvgMemBatchExecTime = %u", stats[0]);
+    printf("\nMaxMemBatchExecTime = %u", stats[2]);
+    printf("\nStDevMemBatchExecTime = %u\n", stats[1]);
 
     // Wasted MEM batch cycles
-    sum = 0;
-    mean = 0;
-    sq = 0;
-    stdev = 0;
-    max = 0;
-    // we reuse 'len' because we need average across all MEM batches
+    stats = get_stats<unsigned long long>(&(sched->m_mem_wasted_cycles));
 
-    if (sched->m_mem_wasted_cycles.size()) {
-      sum = std::accumulate(sched->m_mem_wasted_cycles.begin(),
-          sched->m_mem_wasted_cycles.end(), 0.0);
-      mean = sum / len;
-      sq = std::inner_product(sched->m_mem_wasted_cycles.begin(),
-          sched->m_mem_wasted_cycles.end(),
-          sched->m_mem_wasted_cycles.begin(), 0.0);
-      stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_mem_wasted_cycles),
-          std::end(sched->m_mem_wasted_cycles));
-    }
-
-    printf("\nAvgMemWastedCycles = %.6f", mean);
-    printf("\nMaxMemWastedCycles = %.6f", max);
-    printf("\nStDevMemWastedCycles = %.6f\n", stdev);
+    printf("\nAvgMemWastedCycles = %u", stats[0]);
+    printf("\nMaxMemWastedCycles = %u", stats[2]);
+    printf("\nStDevMemWastedCycles = %u\n", stats[1]);
   }
 
   if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
@@ -1629,6 +1605,40 @@ void dram_t::print(FILE *simFile) const {
 
     printf("\nAvgNonZeroSwitchReadinessLatency = %.6f", mean);
     printf("\nStDevNonZeroSwitchReadinessLatency = %.6f\n", stdev);
+
+    std::vector<unsigned> stats = get_stats<unsigned>(
+        &(sched->m_mem_cap));
+
+    printf("\nAvgMemCap = %u", stats[0]);
+    printf("\nMaxMemCap = %u", stats[2]);
+    printf("\nStDevMemCap = %u", stats[1]);
+
+    stats = get_stats<unsigned>(
+        &(sched->m_max_mem_requests_issued_at_any_bank));
+
+    printf("\nAvgMemRequestsIssuedPerBank = %u", stats[0]);
+    printf("\nMaxMemRequestsIssuedPerBank = %u", stats[2]);
+    printf("\nStDevMemRequestsIssuedPerBank = %u", stats[1]);
+
+    stats = get_stats<unsigned>(&(sched->m_pim_requests_issued));
+
+    printf("\nAvgPimRequestsIssued = %u", stats[0]);
+    printf("\nMaxPimRequestsIssued = %u", stats[2]);
+    printf("\nStDevPimRequestsIssued = %u", stats[1]);
+
+    printf("\nMEM2PIM Switch Breakdown:\n");
+    for (int i = 0; i < NUM_SWITCH_REASONS; i++) {
+      unsigned count = std::count(sched->m_mem2pim_switch_reason.begin(),
+          sched->m_mem2pim_switch_reason.end(), i);
+      printf("  %s: %u\n", switch_reason_str[i].c_str(), count);
+    }
+
+    printf("\nPIM2MEM Switch Breakdown:\n");
+    for (int i = 0; i < NUM_SWITCH_REASONS; i++) {
+      unsigned count = std::count(sched->m_pim2mem_switch_reason.begin(),
+          sched->m_pim2mem_switch_reason.end(), i);
+      printf("  %s: %u\n", switch_reason_str[i].c_str(), count);
+    }
   }
 
   if (m_config->scheduler_type == DRAM_BLISS) {

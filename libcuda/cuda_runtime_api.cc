@@ -2001,7 +2001,7 @@ __host__ cudaError_t CUDARTAPI cudaLaunchKernelInternal(
 }
 
 __host__ cudaError_t CUDARTAPI cudaStreamCreateInternal(
-    cudaStream_t *stream, gpgpu_context *gpgpu_ctx = NULL) {
+    cudaStream_t *stream, int priority, gpgpu_context *gpgpu_ctx = NULL) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -2014,7 +2014,7 @@ __host__ cudaError_t CUDARTAPI cudaStreamCreateInternal(
   printf("GPGPU-Sim PTX: cudaStreamCreate\n");
 #if (CUDART_VERSION >= 3000)
   *stream = new struct CUstream_st();
-  ctx->the_gpgpusim->g_stream_manager->add_stream(*stream);
+  ctx->the_gpgpusim->g_stream_manager->add_stream(*stream, priority);
 #else
   *stream = 0;
   printf(
@@ -2816,7 +2816,7 @@ __host__ cudaError_t CUDARTAPI cudaLaunchKernel(const char *hostFun,
  *******************************************************************************/
 
 __host__ cudaError_t CUDARTAPI cudaStreamCreate(cudaStream_t *stream) {
-  return cudaStreamCreateInternal(stream);
+  return cudaStreamCreateInternal(stream, 0);
 }
 
 // TODO: introduce priorities
@@ -2825,7 +2825,7 @@ __host__ cudaError_t CUDARTAPI cudaStreamCreateWithPriority(
   if (g_debug_execution >= 3) {
     announce_call(__my_func__);
   }
-  return cudaStreamCreate(stream);
+  return cudaStreamCreateInternal(stream, priority);
 }
 
 __host__ cudaError_t CUDARTAPI

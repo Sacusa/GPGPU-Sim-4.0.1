@@ -253,7 +253,7 @@ class stream_manager {
   bool register_finished_kernel(unsigned grid_uid);
   bool check_finished_kernel();
   stream_operation front();
-  void add_stream(CUstream_st *stream);
+  void add_stream(CUstream_st *stream, int priority);
   void destroy_stream(CUstream_st *stream);
   bool concurrent_streams_empty();
   bool empty_protected();
@@ -272,11 +272,14 @@ class stream_manager {
 
   bool m_cuda_launch_blocking;
   gpgpu_sim *m_gpu;
-  std::list<CUstream_st *> m_streams;
+
+  std::set<int> m_priorities;
+  std::map<int, std::list<CUstream_st *>> m_streams;
+  std::map<int, std::list<struct CUstream_st *>::iterator> m_last_stream;
+
   std::map<unsigned, CUstream_st *> m_grid_id_to_stream;
   CUstream_st m_stream_zero;
   pthread_mutex_t m_lock;
-  std::list<struct CUstream_st *>::iterator m_last_stream;
 };
 
 #endif

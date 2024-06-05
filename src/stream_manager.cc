@@ -235,8 +235,10 @@ stream_manager::stream_manager(gpgpu_sim *gpu, bool cuda_launch_blocking) {
   m_gpu = gpu;
   m_cuda_launch_blocking = cuda_launch_blocking;
   pthread_mutex_init(&m_lock, NULL);
-  m_streams.push_back(&m_stream_zero);
-  m_last_stream = m_streams.begin();
+
+  m_priorities.insert(0);
+  m_streams.insert({0, {&m_stream_zero}});
+  m_last_stream.insert({0, m_streams[0].end()});
 }
 
 bool stream_manager::operation(bool *sim) {
@@ -319,68 +321,117 @@ void stream_manager::stop_all_running_kernels() {
 stream_operation stream_manager::front() {
   // called by gpu simulation thread
   stream_operation result;
+  bool result_found = false;
 
-  std::list<struct CUstream_st *>::iterator s = m_last_stream;
-  s++;
+  for (auto priorities_it = m_priorities.begin();
+      (priorities_it != m_priorities.end()) && !result_found;
+      priorities_it++) {
+    int priority = *priorities_it;
 
-  for (size_t ii = 0; ii < m_streams.size(); ii++, s++) {
-    if (s == m_streams.end()) {
-      s = m_streams.begin();
-    }
+    std::list<struct CUstream_st *>::iterator s = m_last_stream[priority];
+    s++;
 
-    m_last_stream = s;
-    CUstream_st *stream = *s;
-    if (!stream->busy() && !stream->empty()) {
-      result = stream->next();
-      if (result.is_kernel()) {
-        unsigned grid_id = result.get_kernel()->get_uid();
-        m_grid_id_to_stream[grid_id] = stream;
+    for (size_t ii = 0; ii < m_streams[priority].size(); ii++, s++) {
+      if (s == m_streams[priority].end()) {
+        s = m_streams[priority].begin();
       }
-      break;
+
+      m_last_stream[priority] = s;
+      CUstream_st *stream = *s;
+      if (!stream->busy() && !stream->empty()) {
+        result = stream->next();
+        if (result.is_kernel()) {
+          unsigned grid_id = result.get_kernel()->get_uid();
+          m_grid_id_to_stream[grid_id] = stream;
+        }
+
+        result_found = true;
+        break;
+      }
     }
   }
 
   return result;
 }
 
-void stream_manager::add_stream(struct CUstream_st *stream) {
+void stream_manager::add_stream(struct CUstream_st *stream, int priority) {
   // called by host thread
   pthread_mutex_lock(&m_lock);
-  m_streams.push_back(stream);
+
+  m_priorities.insert(priority);
+
+  if (m_streams.find(priority) == m_streams.end()) {
+    m_streams.insert({priority, {stream}});
+    m_last_stream.insert({priority, m_streams[priority].end()});
+  } else {
+    m_streams[priority].push_back(stream);
+  }
+
   pthread_mutex_unlock(&m_lock);
 }
 
 void stream_manager::destroy_stream(CUstream_st *stream) {
   // called by host thread
   assert(stream != &m_stream_zero);
+
+  bool done = false;
+
   pthread_mutex_lock(&m_lock);
-  while (!stream->empty())
-    ;
-  std::list<CUstream_st *>::iterator s;
-  for (s = m_streams.begin(); s != m_streams.end(); s++) {
-    if (*s == stream) {
-      m_streams.erase(s);
-      break;
+
+  while (!stream->empty());
+
+  for (auto priorities_it = m_priorities.begin();
+      (priorities_it != m_priorities.end());
+      priorities_it++) {
+    int priority = *priorities_it;
+
+    for (auto s = m_streams[priority].begin(); s != m_streams[priority].end();
+        s++) {
+      if (*s == stream) {
+        m_streams[priority].erase(s);
+        delete stream;
+
+        if (m_streams[priority].empty()) {
+          // No more streams at this priority level
+          m_streams.erase(priority);
+          m_last_stream.erase(priority);
+          m_priorities.erase(priority);
+        } else {
+          m_last_stream[priority] = m_streams[priority].end();
+        }
+
+        done = true;
+        break;
+      }
     }
+
+    // We need a separate break here because we are modifying the set we are
+    // iterating on. This can cause undefined behavior if the loop iterator is
+    // updated.
+    if (done) { break; }
   }
-  delete stream;
-  m_last_stream = m_streams.begin();
+
   pthread_mutex_unlock(&m_lock);
 }
 
 bool stream_manager::concurrent_streams_empty() {
   bool result = true;
-  if (m_streams.empty()) return true;
-  // called by gpu simulation thread
-  std::list<struct CUstream_st *>::iterator s;
-  for (s = m_streams.begin(); s != m_streams.end(); ++s) {
-    struct CUstream_st *stream = *s;
-    if (!stream->empty()) {
-      // stream->print(stdout);
-      result = false;
-      break;
+
+  for (auto priorities_it = m_priorities.begin();
+      (priorities_it != m_priorities.end()) && result;
+      priorities_it++) {
+    int priority = *priorities_it;
+
+    for (auto s = m_streams[priority].begin(); s != m_streams[priority].end();
+        s++) {
+      struct CUstream_st *stream = *s;
+      if (!stream->empty()) {
+        result = false;
+        break;
+      }
     }
   }
+
   return result;
 }
 
@@ -405,10 +456,16 @@ void stream_manager::print(FILE *fp) {
 }
 void stream_manager::print_impl(FILE *fp) {
   fprintf(fp, "GPGPU-Sim API: Stream Manager State\n");
-  std::list<struct CUstream_st *>::iterator s;
-  for (s = m_streams.begin(); s != m_streams.end(); ++s) {
-    struct CUstream_st *stream = *s;
-    if (!stream->empty()) stream->print(fp);
+
+  for (auto priorities_it = m_priorities.begin();
+      (priorities_it != m_priorities.end()); priorities_it++) {
+    int priority = *priorities_it;
+
+    for (auto s = m_streams[priority].begin(); s != m_streams[priority].end();
+        s++) {
+      struct CUstream_st *stream = *s;
+      if (!stream->empty()) { stream->print(fp); }
+    }
   }
 }
 
@@ -472,9 +529,14 @@ void stream_manager::push(stream_operation op) {
 
 void stream_manager::pushCudaStreamWaitEventToAllStreams(CUevent_st *e,
                                                          unsigned int flags) {
-  std::list<CUstream_st *>::iterator s;
-  for (s = m_streams.begin(); s != m_streams.end(); s++) {
-    stream_operation op(*s, e, flags);
-    push(op);
+  for (auto priorities_it = m_priorities.begin();
+      (priorities_it != m_priorities.end()); priorities_it++) {
+    int priority = *priorities_it;
+
+    for (auto s = m_streams[priority].begin(); s != m_streams[priority].end();
+        s++) {
+      stream_operation op(*s, e, flags);
+      push(op);
+    }
   }
 }

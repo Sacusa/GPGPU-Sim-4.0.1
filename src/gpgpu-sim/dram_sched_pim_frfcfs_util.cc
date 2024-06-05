@@ -183,7 +183,7 @@ void pim_frfcfs_util_scheduler::update_mode() {
 
       m_max_exec_mem_per_bank = \
           std::min(m_config->frfcfs_cap, m_num_exec_pim) * \
-          (m_config->max_pim_slowdown - 1);
+          m_config->max_pim_slowdown;
       std::fill(m_num_exec_mem_per_bank.begin(), m_num_exec_mem_per_bank.end(),
           0);
 

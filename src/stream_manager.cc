@@ -345,6 +345,8 @@ stream_operation stream_manager::front() {
           m_grid_id_to_stream[grid_id] = stream;
         }
 
+        printf("GPGPU-Sim API: Stream %d launching an operation"
+            " at cycle %lld\n", stream->get_uid(), m_gpu->gpu_tot_sim_cycle);
         result_found = true;
         break;
       }
@@ -410,6 +412,8 @@ void stream_manager::destroy_stream(CUstream_st *stream) {
     // updated.
     if (done) { break; }
   }
+
+  assert(done);
 
   pthread_mutex_unlock(&m_lock);
 }

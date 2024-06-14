@@ -1097,17 +1097,6 @@ void gpgpu_sim::update_stats() {
 void gpgpu_sim::print_stats() {
   gpgpu_ctx->stats->ptx_file_line_stats_write_file();
   gpu_print_stat(0);
-
-  if (g_network_mode) {
-    printf(
-        "----------------------------Interconnect-DETAILS----------------------"
-        "----------\n");
-    icnt_display_stats();
-    icnt_display_overall_stats();
-    printf(
-        "----------------------------END-of-Interconnect-DETAILS---------------"
-        "----------\n");
-  }
 }
 
 void gpgpu_sim::deadlock_check() {
@@ -1468,6 +1457,17 @@ void gpgpu_sim::gpu_print_stat(unsigned int kernel_uid) {
   fflush(stdout);
 
   clear_executed_kernel_info(kernel_uid);
+
+  if (g_network_mode) {
+    printf(
+        "----------------------------Interconnect-DETAILS----------------------"
+        "----------\n");
+    icnt_display_stats();
+    icnt_display_overall_stats();
+    printf(
+        "----------------------------END-of-Interconnect-DETAILS---------------"
+        "----------\n");
+  }
 }
 
 // performance counter that are not local to one shader

@@ -346,7 +346,8 @@ stream_operation stream_manager::front() {
         }
 
         printf("GPGPU-Sim API: Stream %d launching an operation"
-            " at cycle %lld\n", stream->get_uid(), m_gpu->gpu_tot_sim_cycle);
+            " at cycle %lld\n", stream->get_uid(), m_gpu->gpu_tot_sim_cycle + \
+            m_gpu->gpu_sim_cycle);
         result_found = true;
         break;
       }

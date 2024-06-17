@@ -280,6 +280,8 @@ class stream_manager {
   std::map<unsigned, CUstream_st *> m_grid_id_to_stream;
   CUstream_st m_stream_zero;
   pthread_mutex_t m_lock;
+
+  std::set<unsigned> m_started_kernel_uids;
 };
 
 #endif

@@ -857,7 +857,8 @@ void kernel_info_t::notify_parent_finished() {
 CUstream_st *kernel_info_t::create_stream_cta(dim3 ctaid) {
   assert(get_default_stream_cta(ctaid));
   CUstream_st *stream = new CUstream_st();
-  m_kernel_entry->gpgpu_ctx->the_gpgpusim->g_stream_manager->add_stream(stream);
+  m_kernel_entry->gpgpu_ctx->the_gpgpusim->g_stream_manager->add_stream(
+      stream, 0);
   assert(m_cta_streams.find(ctaid) != m_cta_streams.end());
   assert(m_cta_streams[ctaid].size() >= 1);  // must have default stream
   m_cta_streams[ctaid].push_back(stream);
@@ -874,7 +875,7 @@ CUstream_st *kernel_info_t::get_default_stream_cta(dim3 ctaid) {
     m_cta_streams[ctaid] = std::list<CUstream_st *>();
     CUstream_st *stream = new CUstream_st();
     m_kernel_entry->gpgpu_ctx->the_gpgpusim->g_stream_manager->add_stream(
-        stream);
+        stream, 0);
     m_cta_streams[ctaid].push_back(stream);
     return stream;
   }

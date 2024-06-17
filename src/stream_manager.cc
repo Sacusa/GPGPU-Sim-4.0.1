@@ -343,11 +343,16 @@ stream_operation stream_manager::front() {
         if (result.is_kernel()) {
           unsigned grid_id = result.get_kernel()->get_uid();
           m_grid_id_to_stream[grid_id] = stream;
+
+          if (m_started_kernel_uids.find(grid_id) == \
+              m_started_kernel_uids.end()) {
+            printf("GPGPU-Sim API: Stream %d launching kernel %u"
+                " at cycle %lld\n", stream->get_uid(), grid_id,
+                m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
+            m_started_kernel_uids.insert(grid_id);
+          }
         }
 
-        printf("GPGPU-Sim API: Stream %d launching an operation"
-            " at cycle %lld\n", stream->get_uid(), m_gpu->gpu_tot_sim_cycle + \
-            m_gpu->gpu_sim_cycle);
         result_found = true;
         break;
       }

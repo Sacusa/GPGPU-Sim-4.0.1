@@ -11,6 +11,10 @@ mem_first_scheduler::mem_first_scheduler(const memory_config *config,
 
 void mem_first_scheduler::update_mode() {
   if ((m_num_pending + m_num_write_pending) > 0) {
+    if (m_dram->mode == PIM_MODE) {
+      m_dram->pim2nonpimswitches++;
+    }
+
     m_dram->mode = READ_MODE;
   }
 

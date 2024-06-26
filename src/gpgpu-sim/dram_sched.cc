@@ -173,7 +173,7 @@ void dram_scheduler::update_mode() {
       m_dram->pim2nonpimswitches++;
 
 #ifdef DRAM_SCHED_VERIFY
-      printf("DRAM: Switching to non-PIM mode\n");
+      printf("DRAM %d: Switching to non-PIM mode\n", m_dram->id);
 #endif
     }
   }
@@ -184,7 +184,7 @@ void dram_scheduler::update_mode() {
       m_dram->nonpim2pimswitches++;
 
 #ifdef DRAM_SCHED_VERIFY
-      printf("DRAM: Switching to PIM mode\n");
+      printf("DRAM %d: Switching to PIM mode\n", m_dram->id);
 #endif
     }
   }

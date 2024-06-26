@@ -11,6 +11,10 @@ pim_first_scheduler::pim_first_scheduler(const memory_config *config,
 
 void pim_first_scheduler::update_mode() {
   if (m_num_pim_pending > 0) {
+    if (m_dram->mode != PIM_MODE) {
+      m_dram->nonpim2pimswitches++;
+    }
+
     m_dram->mode = PIM_MODE;
   }
 

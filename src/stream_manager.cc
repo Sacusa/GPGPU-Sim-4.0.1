@@ -343,6 +343,14 @@ stream_operation stream_manager::front() {
         if (result.is_kernel()) {
           unsigned grid_id = result.get_kernel()->get_uid();
           m_grid_id_to_stream[grid_id] = stream;
+
+          if (m_started_kernel_uids.find(grid_id) == \
+              m_started_kernel_uids.end()) {
+            printf("GPGPU-Sim API: Stream %d launching kernel %u"
+                " at cycle %lld\n", stream->get_uid(), grid_id,
+                m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
+            m_started_kernel_uids.insert(grid_id);
+          }
         }
 
         result_found = true;
@@ -410,6 +418,8 @@ void stream_manager::destroy_stream(CUstream_st *stream) {
     // updated.
     if (done) { break; }
   }
+
+  assert(done);
 
   pthread_mutex_unlock(&m_lock);
 }

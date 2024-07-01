@@ -47,7 +47,7 @@ icnt_get_flit_size_p icnt_get_flit_size;
 unsigned g_network_mode;
 char* g_network_config_filename;
 
-struct inct_config g_inct_config;
+struct icnt_config g_icnt_config;
 LocalInterconnect* g_localicnt_interface;
 
 #include "../option_parser.h"
@@ -61,12 +61,13 @@ static void intersim2_create(unsigned int n_shader, unsigned int n_mem) {
 
 static void intersim2_init() { g_icnt_interface->Init(); }
 
-static bool intersim2_has_buffer(unsigned input, unsigned int size) {
+static bool intersim2_has_buffer(unsigned input, unsigned int size,
+                                 bool is_pim) {
   return g_icnt_interface->HasBuffer(input, size);
 }
 
 static void intersim2_push(unsigned input, unsigned output, void* data,
-                           unsigned int size) {
+                           unsigned int size, bool is_pim) {
   g_icnt_interface->Push(input, output, data, size);
 }
 
@@ -101,13 +102,14 @@ static void LocalInterconnect_create(unsigned int n_shader,
 
 static void LocalInterconnect_init() { g_localicnt_interface->Init(); }
 
-static bool LocalInterconnect_has_buffer(unsigned input, unsigned int size) {
-  return g_localicnt_interface->HasBuffer(input, size);
+static bool LocalInterconnect_has_buffer(unsigned input, unsigned int size,
+                                         bool is_pim) {
+  return g_localicnt_interface->HasBuffer(input, size, is_pim);
 }
 
 static void LocalInterconnect_push(unsigned input, unsigned output, void* data,
-                                   unsigned int size) {
-  g_localicnt_interface->Push(input, output, data, size);
+                                   unsigned int size, bool is_pim) {
+  g_localicnt_interface->Push(input, output, data, size, is_pim);
 }
 
 static void* LocalInterconnect_pop(unsigned output) {
@@ -145,22 +147,22 @@ void icnt_reg_options(class OptionParser* opp) {
 
   // parameters for local xbar
   option_parser_register(opp, "-icnt_in_buffer_limit", OPT_UINT32,
-                         &g_inct_config.in_buffer_limit, "in_buffer_limit",
+                         &g_icnt_config.in_buffer_limit, "in_buffer_limit",
                          "64");
   option_parser_register(opp, "-icnt_out_buffer_limit", OPT_UINT32,
-                         &g_inct_config.out_buffer_limit, "out_buffer_limit",
+                         &g_icnt_config.out_buffer_limit, "out_buffer_limit",
                          "64");
   option_parser_register(opp, "-icnt_subnets", OPT_UINT32,
-                         &g_inct_config.subnets, "subnets", "2");
+                         &g_icnt_config.subnets, "subnets", "2");
   option_parser_register(opp, "-icnt_arbiter_algo", OPT_UINT32,
-                         &g_inct_config.arbiter_algo, "arbiter_algo", "1");
+                         &g_icnt_config.arbiter_algo, "arbiter_algo", "1");
   option_parser_register(opp, "-icnt_verbose", OPT_UINT32,
-                         &g_inct_config.verbose, "inct_verbose", "0");
+                         &g_icnt_config.verbose, "icnt_verbose", "0");
   option_parser_register(opp, "-icnt_grant_cycles", OPT_UINT32,
-                         &g_inct_config.grant_cycles, "grant_cycles", "1");
+                         &g_icnt_config.grant_cycles, "grant_cycles", "1");
 }
 
-void icnt_wrapper_init() {
+void icnt_wrapper_init(unsigned shader_to_mem_vcs) {
   switch (g_network_mode) {
     case INTERSIM:
       // FIXME: delete the object: may add icnt_done wrapper
@@ -178,7 +180,8 @@ void icnt_wrapper_init() {
       icnt_get_flit_size = intersim2_get_flit_size;
       break;
     case LOCAL_XBAR:
-      g_localicnt_interface = LocalInterconnect::New(g_inct_config);
+      g_icnt_config.shader_to_mem_vcs = shader_to_mem_vcs;
+      g_localicnt_interface = LocalInterconnect::New(g_icnt_config);
       icnt_create = LocalInterconnect_create;
       icnt_init = LocalInterconnect_init;
       icnt_has_buffer = LocalInterconnect_has_buffer;

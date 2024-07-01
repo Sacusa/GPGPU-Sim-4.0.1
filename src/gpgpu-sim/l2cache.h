@@ -242,7 +242,7 @@ class L2interface : public mem_fetch_interface {
  public:
   L2interface(memory_sub_partition *unit) { m_unit = unit; }
   virtual ~L2interface() {}
-  virtual bool full(unsigned size, bool write) const {
+  virtual bool full(unsigned size, bool write, bool pim) const {
     // assume read and write packets all same size
     return m_unit->m_L2_dram_queue->full();
   }

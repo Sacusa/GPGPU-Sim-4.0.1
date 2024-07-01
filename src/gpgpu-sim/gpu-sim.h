@@ -76,6 +76,8 @@ enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1, DRAM_GI = 2, DRAM_I1 = 3,
                    DRAM_MEM_FIRST = 21, DRAM_PIM_FIRST = 22,
                    DRAM_DYN_THRESH = 23};
 
+enum request_vc_t { MEM_VC = 0, PIM_VC = 1 };
+
 struct power_config {
   power_config() { m_valid = true; }
   void init() {
@@ -440,6 +442,9 @@ class gpgpu_sim_config : public power_config,
   int gpgpu_cflog_interval;
   char *gpgpu_clock_domains;
   unsigned max_concurrent_kernel;
+
+  // Interconnect options
+  unsigned shader_to_mem_vcs;
 
   // visualizer
   bool g_visualizer_enabled;

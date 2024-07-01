@@ -689,6 +689,9 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
                          &(gpgpu_ctx->device_runtime->g_TB_launch_latency),
                          "thread block launch latency in cycles. Default: 0",
                          "0");
+
+  option_parser_register(opp, "-gpgpu_shader_to_mem_vcs", OPT_UINT32,
+                         &shader_to_mem_vcs, "shader->mem VCs", "1");
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -908,7 +911,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
     }
   }
 
-  icnt_wrapper_init();
+  icnt_wrapper_init(m_config.shader_to_mem_vcs);
   icnt_create(m_shader_config->n_simt_clusters,
               m_memory_config->m_n_mem_sub_partition);
 
@@ -1814,12 +1817,13 @@ void gpgpu_sim::cycle() {
       if (mf) {
         unsigned response_size =
             mf->get_is_write() ? mf->get_ctrl_size() : mf->size();
-        if (::icnt_has_buffer(m_shader_config->mem2device(i), response_size)) {
+        if (::icnt_has_buffer(m_shader_config->mem2device(i), response_size,
+                    false)) {
           // if (!mf->get_is_write())
           mf->set_return_timestamp(gpu_sim_cycle + gpu_tot_sim_cycle);
           mf->set_status(IN_ICNT_TO_SHADER, gpu_sim_cycle + gpu_tot_sim_cycle);
           ::icnt_push(m_shader_config->mem2device(i), mf->get_tpc(), mf,
-                      response_size);
+                      response_size, false);
           m_memory_sub_partition[i]->pop();
           partiton_replys_in_parallel_per_cycle++;
         } else {

@@ -38,23 +38,31 @@
 #include "mem_fetch.h"
 
 xbar_router::xbar_router(unsigned router_id, enum Interconnect_type m_type,
-                         unsigned n_shader, unsigned n_mem,
-                         const struct inct_config& m_localinct_config) {
+                         unsigned n_shader, unsigned n_mem, unsigned n_vcs,
+                         const struct icnt_config& m_localicnt_config) {
   m_id = router_id;
   router_type = m_type;
   _n_mem = n_mem;
   _n_shader = n_shader;
   total_nodes = n_shader + n_mem;
-  verbose = m_localinct_config.verbose;
-  grant_cycles = m_localinct_config.grant_cycles;
-  grant_cycles_count = m_localinct_config.grant_cycles;
+  verbose = m_localicnt_config.verbose;
+  grant_cycles = m_localicnt_config.grant_cycles;
+  grant_cycles_count = m_localicnt_config.grant_cycles;
+  next_node.resize(total_nodes, 0);
+  arbit_type = m_localicnt_config.arbiter_algo;
+  next_node_id = 0;
+  num_vcs = n_vcs;
+
+  in_buffer_limit = m_localicnt_config.in_buffer_limit / num_vcs;
+  out_buffer_limit = m_localicnt_config.out_buffer_limit / num_vcs;
   in_buffers.resize(total_nodes);
   out_buffers.resize(total_nodes);
-  next_node.resize(total_nodes, 0);
-  in_buffer_limit = m_localinct_config.in_buffer_limit;
-  out_buffer_limit = m_localinct_config.out_buffer_limit;
-  arbit_type = m_localinct_config.arbiter_algo;
-  next_node_id = 0;
+
+  for (unsigned i = 0; i < total_nodes; i++) {
+    in_buffers[i].resize(num_vcs);
+    out_buffers[i].resize(num_vcs);
+  }
+
   if (m_type == REQ_NET) {
     active_in_buffers = n_shader;
     active_out_buffers = n_mem;
@@ -62,6 +70,9 @@ xbar_router::xbar_router(unsigned router_id, enum Interconnect_type m_type,
     active_in_buffers = n_mem;
     active_out_buffers = n_shader;
   }
+
+  prev_vc_advanced.resize(total_nodes);
+  prev_vc_popped.resize(total_nodes);
 
   cycles = 0;
   conflicts = 0;
@@ -78,37 +89,44 @@ xbar_router::xbar_router(unsigned router_id, enum Interconnect_type m_type,
 xbar_router::~xbar_router() {}
 
 void xbar_router::Push(unsigned input_deviceID, unsigned output_deviceID,
-                       void* data, unsigned int size) {
-  assert(input_deviceID < total_nodes);
-  in_buffers[input_deviceID].push(Packet(data, output_deviceID));
+                       unsigned vc, void* data, unsigned int size) {
+  assert((input_deviceID < total_nodes) && (vc < num_vcs));
+  in_buffers[input_deviceID][vc].push(Packet(data, output_deviceID));
   packets_num++;
 }
 
-void* xbar_router::Pop(unsigned ouput_deviceID) {
-  assert(ouput_deviceID < total_nodes);
+void* xbar_router::Pop(unsigned output_deviceID) {
+  assert(output_deviceID < total_nodes);
   void* data = NULL;
 
-  if (!out_buffers[ouput_deviceID].empty()) {
-    data = out_buffers[ouput_deviceID].front().data;
-    out_buffers[ouput_deviceID].pop();
+  for (unsigned vc_iter = 0; vc_iter < num_vcs; vc_iter++) {
+    unsigned vc = (prev_vc_popped[output_deviceID] + vc_iter + 1) % num_vcs;
+
+    if (!out_buffers[output_deviceID][vc].empty()) {
+      data = out_buffers[output_deviceID][vc].front().data;
+      out_buffers[output_deviceID][vc].pop();
+      prev_vc_popped[output_deviceID] = vc;
+      break;
+    }
   }
 
   return data;
 }
 
-bool xbar_router::Has_Buffer_In(unsigned input_deviceID, unsigned size,
-                                bool update_counter) {
-  assert(input_deviceID < total_nodes);
+bool xbar_router::Has_Buffer_In(unsigned input_deviceID, unsigned vc,
+                                unsigned size, bool update_counter) {
+  assert((input_deviceID < total_nodes) && (vc < num_vcs));
 
   bool has_buffer =
-      (in_buffers[input_deviceID].size() + size <= in_buffer_limit);
+      (in_buffers[input_deviceID][vc].size() + size <= in_buffer_limit);
   if (update_counter && !has_buffer) in_buffer_full++;
 
   return has_buffer;
 }
 
-bool xbar_router::Has_Buffer_Out(unsigned output_deviceID, unsigned size) {
-  return (out_buffers[output_deviceID].size() + size <= out_buffer_limit);
+bool xbar_router::Has_Buffer_Out(unsigned output_deviceID, unsigned vc,
+                                 unsigned size) {
+  return (out_buffers[output_deviceID][vc].size() + size <= out_buffer_limit);
 }
 
 void xbar_router::Advance() {
@@ -129,22 +147,34 @@ void xbar_router::RR_Advance() {
   for (unsigned i = 0; i < total_nodes; ++i) {
     unsigned node_id = (i + next_node_id) % total_nodes;
 
-    if (!in_buffers[node_id].empty()) {
-      active = true;
-      Packet _packet = in_buffers[node_id].front();
-      // ensure that the outbuffer has space and not issued before in this cycle
-      if (Has_Buffer_Out(_packet.output_deviceID, 1)) {
-        if (!issued[_packet.output_deviceID]) {
-          out_buffers[_packet.output_deviceID].push(_packet);
-          in_buffers[node_id].pop();
-          issued[_packet.output_deviceID] = true;
-          reqs++;
-        } else
-          conflict_sub++;
-      } else {
-        out_buffer_full++;
+    for (unsigned vc_iter = 0; vc_iter < num_vcs; vc_iter++) {
+      unsigned vc = (prev_vc_advanced[node_id] + vc_iter + 1) % num_vcs;
 
-        if (issued[_packet.output_deviceID]) conflict_sub++;
+      if (!in_buffers[node_id][vc].empty()) {
+        active = true;
+        Packet _packet = in_buffers[node_id][vc].front();
+
+        // Ensure that the outbuffer has space and not issued before in this
+        // cycle
+        if (Has_Buffer_Out(_packet.output_deviceID, vc, 1)) {
+          if (!issued[_packet.output_deviceID]) {
+            out_buffers[_packet.output_deviceID][vc].push(_packet);
+            in_buffers[node_id][vc].pop();
+            prev_vc_advanced[node_id] = vc;
+
+            // Don't need VC here because only one VC per physical link issues
+            // every cycle
+            issued[_packet.output_deviceID] = true;
+            reqs++;
+            break;
+          } else {
+            conflict_sub++;
+          }
+        } else {
+          out_buffer_full++;
+
+          if (issued[_packet.output_deviceID]) { conflict_sub++; }
+        }
       }
     }
   }
@@ -165,8 +195,10 @@ void xbar_router::RR_Advance() {
 
   // collect some stats about buffer util
   for (unsigned i = 0; i < total_nodes; ++i) {
-    in_buffer_util += in_buffers[i].size();
-    out_buffer_util += out_buffers[i].size();
+    for (unsigned vc = 0; vc < num_vcs; vc++) {
+      in_buffer_util += in_buffers[i][vc].size();
+      out_buffer_util += out_buffers[i][vc].size();
+    }
   }
 
   cycles++;
@@ -185,18 +217,20 @@ void xbar_router::iSLIP_Advance() {
 
   // calcaulte how many conflicts are there for stats
   for (unsigned i = 0; i < total_nodes; ++i) {
-    if (!in_buffers[i].empty()) {
-      Packet _packet_tmp = in_buffers[i].front();
-      if (!node_tmp.empty()) {
-        if (std::find(node_tmp.begin(), node_tmp.end(),
-                      _packet_tmp.output_deviceID) != node_tmp.end()) {
-          conflict_sub++;
-        } else
+    for (unsigned vc = 0; vc < num_vcs; vc++) {
+      if (!in_buffers[i][vc].empty()) {
+        Packet _packet_tmp = in_buffers[i][vc].front();
+        if (!node_tmp.empty()) {
+          if (std::find(node_tmp.begin(), node_tmp.end(),
+                        _packet_tmp.output_deviceID) != node_tmp.end()) {
+            conflict_sub++;
+          } else
+            node_tmp.push_back(_packet_tmp.output_deviceID);
+        } else {
           node_tmp.push_back(_packet_tmp.output_deviceID);
-      } else {
-        node_tmp.push_back(_packet_tmp.output_deviceID);
+        }
+        active = true;
       }
-      active = true;
     }
   }
 
@@ -205,27 +239,58 @@ void xbar_router::iSLIP_Advance() {
     conflicts_util += conflict_sub;
     cycles_util++;
   }
+
   // do iSLIP
   for (unsigned i = 0; i < total_nodes; ++i) {
-    if (Has_Buffer_Out(i, 1)) {
-      for (unsigned j = 0; j < total_nodes; ++j) {
-        unsigned node_id = (j + next_node[i]) % total_nodes;
+    vector<bool> has_buffer_out;
+    bool all_out_buffers_full = true;  // Used to skip if there is no space
+    vector<bool> has_pending_request;  // Used to compute out_buffer_full
 
-        if (!in_buffers[node_id].empty()) {
-          Packet _packet = in_buffers[node_id].front();
+    for (unsigned vc = 0; vc < num_vcs; vc++) {
+      bool vc_has_buffer_out = Has_Buffer_Out(i, vc, 1);
+      has_buffer_out.push_back(vc_has_buffer_out);
+      all_out_buffers_full = all_out_buffers_full && !vc_has_buffer_out;
+
+      has_pending_request.push_back(false);
+    }
+
+    // All output buffers are full; move on
+    if (all_out_buffers_full) { continue; }
+
+    bool issued = false;
+
+    for (unsigned j = 0; (j < total_nodes) && !issued; ++j) {
+      unsigned node_id = (j + next_node[i]) % total_nodes;
+
+      for (unsigned vc_iter = 0; vc_iter < num_vcs; vc_iter++) {
+        unsigned vc = (prev_vc_advanced[node_id] + vc_iter + 1) % num_vcs;
+
+        if (!in_buffers[node_id][vc].empty()) {
+          Packet _packet = in_buffers[node_id][vc].front();
+
           if (_packet.output_deviceID == i) {
-            out_buffers[_packet.output_deviceID].push(_packet);
-            in_buffers[node_id].pop();
-            if (verbose)
+            has_pending_request[vc] = true;
+
+            if (!has_buffer_out[vc]) { continue; }
+
+            out_buffers[_packet.output_deviceID][vc].push(_packet);
+            in_buffers[node_id][vc].pop();
+            prev_vc_advanced[node_id] = vc;
+
+            if (verbose) {
               printf("%d : cycle %d : send req from %d to %d\n", m_id, cycles,
                      node_id, i - _n_shader);
-            if (grant_cycles_count == 1)
+            }
+
+            if (grant_cycles_count == 1) {
               next_node[i] = (++node_id % total_nodes);
+            }
+
             if (verbose) {
               for (unsigned k = j + 1; k < total_nodes; ++k) {
                 unsigned node_id2 = (k + next_node[i]) % total_nodes;
-                if (!in_buffers[node_id2].empty()) {
-                  Packet _packet2 = in_buffers[node_id2].front();
+                if (!in_buffers[node_id2][vc].empty()) {
+                  Packet _packet2 = in_buffers[node_id2][vc].front();
 
                   if (_packet2.output_deviceID == i)
                     printf("%d : cycle %d : cannot send req from %d to %d\n",
@@ -235,12 +300,18 @@ void xbar_router::iSLIP_Advance() {
             }
 
             reqs++;
+            issued = true;
             break;
           }
         }
       }
-    } else
-      out_buffer_full++;
+    }
+
+    for (unsigned vc = 0; vc < num_vcs; vc++) {
+      if (has_pending_request[vc] && !has_buffer_out[vc]) {
+        out_buffer_full++;
+      }
+    }
   }
 
   if (active) {
@@ -262,8 +333,10 @@ void xbar_router::iSLIP_Advance() {
 
   // collect some stats about buffer util
   for (unsigned i = 0; i < total_nodes; ++i) {
-    in_buffer_util += in_buffers[i].size();
-    out_buffer_util += out_buffers[i].size();
+    for (unsigned vc = 0; vc < num_vcs; vc++) {
+      in_buffer_util += in_buffers[i][vc].size();
+      out_buffer_util += out_buffers[i][vc].size();
+    }
   }
 
   cycles++;
@@ -271,9 +344,10 @@ void xbar_router::iSLIP_Advance() {
 
 bool xbar_router::Busy() const {
   for (unsigned i = 0; i < total_nodes; ++i) {
-    if (!in_buffers[i].empty()) return true;
-
-    if (!out_buffers[i].empty()) return true;
+    for (unsigned vc = 0; vc < num_vcs; vc++) {
+      if (!in_buffers[i][vc].empty()) return true;
+      if (!out_buffers[i][vc].empty()) return true;
+    }
   }
   return false;
 }
@@ -285,22 +359,24 @@ bool xbar_router::Busy() const {
 #define LOCAL_INCT_FLIT_SIZE 40
 
 LocalInterconnect* LocalInterconnect::New(
-    const struct inct_config& m_localinct_config) {
-  LocalInterconnect* icnt_interface = new LocalInterconnect(m_localinct_config);
+    const struct icnt_config& m_localicnt_config) {
+  LocalInterconnect* icnt_interface = \
+    new LocalInterconnect(m_localicnt_config);
 
   return icnt_interface;
 }
 
 LocalInterconnect::LocalInterconnect(
-    const struct inct_config& m_localinct_config)
-    : m_inct_config(m_localinct_config) {
+    const struct icnt_config& m_localicnt_config)
+    : m_icnt_config(m_localicnt_config) {
   n_shader = 0;
   n_mem = 0;
-  n_subnets = m_localinct_config.subnets;
+  n_subnets = m_localicnt_config.subnets;
+  n_shader_to_mem_vcs = m_localicnt_config.shader_to_mem_vcs;
 }
 
 LocalInterconnect::~LocalInterconnect() {
-  for (unsigned i = 0; i < m_inct_config.subnets; ++i) {
+  for (unsigned i = 0; i < m_icnt_config.subnets; ++i) {
     delete net[i];
   }
 }
@@ -311,9 +387,15 @@ void LocalInterconnect::CreateInterconnect(unsigned m_n_shader,
   n_mem = m_n_mem;
 
   net.resize(n_subnets);
+
   for (unsigned i = 0; i < n_subnets; ++i) {
-    net[i] = new xbar_router(i, static_cast<Interconnect_type>(i), m_n_shader,
-                             m_n_mem, m_inct_config);
+    enum Interconnect_type icnt_type = static_cast<Interconnect_type>(i);
+
+    unsigned num_vcs = 1;
+    if (icnt_type == REQ_NET) { num_vcs = n_shader_to_mem_vcs; }
+
+    net[i] = new xbar_router(i, icnt_type, m_n_shader, m_n_mem, num_vcs,
+        m_icnt_config);
   }
 }
 
@@ -323,32 +405,36 @@ void LocalInterconnect::Init() {
 }
 
 void LocalInterconnect::Push(unsigned input_deviceID, unsigned output_deviceID,
-                             void* data, unsigned int size) {
-  unsigned subnet;
+                             void* data, unsigned int size, bool is_pim) {
+  unsigned subnet, vc;
   if (n_subnets == 1) {
     subnet = 0;
+    vc = 0;
   } else {
     if (input_deviceID < n_shader) {
       subnet = 0;
+      if (is_pim && (n_shader_to_mem_vcs > 1)) { vc = PIM_VC; }
+      else                                     { vc = MEM_VC; }
     } else {
       subnet = 1;
+      vc = 0;
     }
   }
 
   // it should have free buffer
   // assume all the packets have size of one
   // no flits are implemented
-  assert(net[subnet]->Has_Buffer_In(input_deviceID, 1));
+  assert(net[subnet]->Has_Buffer_In(input_deviceID, vc, 1));
 
-  net[subnet]->Push(input_deviceID, output_deviceID, data, size);
+  net[subnet]->Push(input_deviceID, output_deviceID, vc, data, size);
 }
 
-void* LocalInterconnect::Pop(unsigned ouput_deviceID) {
+void* LocalInterconnect::Pop(unsigned output_deviceID) {
   // 0-_n_shader-1 indicates reply(network 1), otherwise request(network 0)
   int subnet = 0;
-  if (ouput_deviceID < n_shader) subnet = 1;
+  if (output_deviceID < n_shader) subnet = 1;
 
-  return net[subnet]->Pop(ouput_deviceID);
+  return net[subnet]->Pop(output_deviceID);
 }
 
 void LocalInterconnect::Advance() {
@@ -364,15 +450,21 @@ bool LocalInterconnect::Busy() const {
   return false;
 }
 
-bool LocalInterconnect::HasBuffer(unsigned deviceID, unsigned int size) const {
-  bool has_buffer = false;
+bool LocalInterconnect::HasBuffer(unsigned deviceID, unsigned int size,
+    bool is_pim) const {
+  enum Interconnect_type icnt_type;
+  unsigned vc;
 
-  if ((n_subnets > 1) && deviceID >= n_shader)  // deviceID is memory node
-    has_buffer = net[REPLY_NET]->Has_Buffer_In(deviceID, 1, true);
-  else
-    has_buffer = net[REQ_NET]->Has_Buffer_In(deviceID, 1, true);
+  if ((n_subnets > 1) && deviceID >= n_shader) {  // deviceID is memory node
+    icnt_type = REPLY_NET;
+    vc = 0;
+  } else {
+    icnt_type = REQ_NET;
+    if (is_pim && (n_shader_to_mem_vcs > 1)) { vc = PIM_VC; }
+    else                                     { vc = MEM_VC; }
+  }
 
-  return has_buffer;
+  return net[icnt_type]->Has_Buffer_In(deviceID, vc, 1, true);
 }
 
 void LocalInterconnect::DisplayStats() const {

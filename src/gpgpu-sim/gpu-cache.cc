@@ -1017,7 +1017,7 @@ bool baseline_cache::bandwidth_management::fill_port_free() const {
 void baseline_cache::cycle() {
   if (!m_miss_queue.empty()) {
     mem_fetch *mf = m_miss_queue.front();
-    if (!m_memport->full(mf->size(), mf->get_is_write())) {
+    if (!m_memport->full(mf->size(), mf->get_is_write(), false)) {
       m_miss_queue.pop_front();
       m_memport->push(mf);
     }
@@ -1737,7 +1737,7 @@ void tex_cache::cycle() {
   // send next request to lower level of memory
   if (!m_request_fifo.empty()) {
     mem_fetch *mf = m_request_fifo.peek();
-    if (!m_memport->full(mf->get_ctrl_size(), false)) {
+    if (!m_memport->full(mf->get_ctrl_size(), false, false)) {
       m_request_fifo.pop();
       m_memport->push(mf);
     }

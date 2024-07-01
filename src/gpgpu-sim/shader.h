@@ -2300,7 +2300,7 @@ class simt_core_cluster {
   unsigned issue_block2core();
   void cache_flush();
   void cache_invalidate();
-  bool icnt_injection_buffer_full(unsigned size, bool write);
+  bool icnt_injection_buffer_full(unsigned size, bool write, bool pim);
   void icnt_inject_request_packet(class mem_fetch *mf);
 
   // for perfect memory interface
@@ -2369,8 +2369,8 @@ class shader_memory_interface : public mem_fetch_interface {
     m_core = core;
     m_cluster = cluster;
   }
-  virtual bool full(unsigned size, bool write) const {
-    return m_cluster->icnt_injection_buffer_full(size, write);
+  virtual bool full(unsigned size, bool write, bool pim) const {
+    return m_cluster->icnt_injection_buffer_full(size, write, pim);
   }
   virtual void push(mem_fetch *mf) {
     m_core->inc_simt_to_mem(mf->get_num_flits(true));
@@ -2388,7 +2388,7 @@ class perfect_memory_interface : public mem_fetch_interface {
     m_core = core;
     m_cluster = cluster;
   }
-  virtual bool full(unsigned size, bool write) const {
+  virtual bool full(unsigned size, bool write, bool pim) const {
     return m_cluster->response_queue_full();
   }
   virtual void push(mem_fetch *mf) {

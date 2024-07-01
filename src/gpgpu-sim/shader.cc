@@ -2044,8 +2044,8 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
   const mem_access_t &access = inst.accessq_back();
 
   bool bypassL1D = false;
-  if (CACHE_GLOBAL == inst.cache_op || CACHE_STREAMING == inst.cache_op ||
-      (m_L1D == NULL)) {
+  bool is_pim = CACHE_STREAMING == inst.cache_op;
+  if (CACHE_GLOBAL == inst.cache_op || is_pim || (m_L1D == NULL)) {
     bypassL1D = true;
   } else if (inst.space.is_global()) {  // global memory access
     // skip L1 cache if the option is enabled
@@ -2058,7 +2058,7 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
         inst.is_store() ? WRITE_PACKET_SIZE : READ_PACKET_SIZE;
     unsigned size = access.get_size() + control_size;
     // printf("Interconnect:Addr: %x, size=%d\n",access.get_addr(),size);
-    if (m_icnt->full(size, inst.is_store() || inst.isatomic())) {
+    if (m_icnt->full(size, inst.is_store() || inst.isatomic(), is_pim)) {
       stall_cond = ICNT_RC_FAIL;
     } else {
       mem_fetch *mf =
@@ -4332,10 +4332,11 @@ void simt_core_cluster::cache_invalidate() {
     m_core[i]->cache_invalidate();
 }
 
-bool simt_core_cluster::icnt_injection_buffer_full(unsigned size, bool write) {
+bool simt_core_cluster::icnt_injection_buffer_full(unsigned size, bool write,
+        bool pim) {
   unsigned request_size = size;
-  if (!write) request_size = READ_PACKET_SIZE;
-  return !::icnt_has_buffer(m_cluster_id, request_size);
+  if (!(write || pim)) request_size = READ_PACKET_SIZE;
+  return !::icnt_has_buffer(m_cluster_id, request_size, pim);
 }
 
 void simt_core_cluster::icnt_inject_request_packet(class mem_fetch *mf) {
@@ -4398,10 +4399,10 @@ void simt_core_cluster::icnt_inject_request_packet(class mem_fetch *mf) {
                  m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
   if (!mf->get_is_write() && !mf->isatomic())
     ::icnt_push(m_cluster_id, m_config->mem2device(destination), (void *)mf,
-                mf->get_ctrl_size());
+                mf->get_ctrl_size(), mf->is_pim());
   else
     ::icnt_push(m_cluster_id, m_config->mem2device(destination), (void *)mf,
-                mf->size());
+                mf->size(), mf->is_pim());
 }
 
 void simt_core_cluster::icnt_cycle() {

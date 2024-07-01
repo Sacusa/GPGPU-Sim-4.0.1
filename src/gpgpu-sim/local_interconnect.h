@@ -33,17 +33,19 @@
 #include <map>
 #include <queue>
 #include <vector>
+#include "gpu-sim.h"
 using namespace std;
 
 enum Interconnect_type { REQ_NET = 0, REPLY_NET = 1 };
 
 enum Arbiteration_type { NAIVE_RR = 0, iSLIP = 1 };
 
-struct inct_config {
+struct icnt_config {
   // config for local interconnect
   unsigned in_buffer_limit;
   unsigned out_buffer_limit;
   unsigned subnets;
+  unsigned shader_to_mem_vcs;
   Arbiteration_type arbiter_algo;
   unsigned verbose;
   unsigned grant_cycles;
@@ -52,18 +54,18 @@ struct inct_config {
 class xbar_router {
  public:
   xbar_router(unsigned router_id, enum Interconnect_type m_type,
-              unsigned n_shader, unsigned n_mem,
-              const struct inct_config& m_localinct_config);
+              unsigned n_shader, unsigned n_mem, unsigned n_vcs,
+              const struct icnt_config& m_localicnt_config);
   ~xbar_router();
-  void Push(unsigned input_deviceID, unsigned output_deviceID, void* data,
-            unsigned int size);
+  void Push(unsigned input_deviceID, unsigned output_deviceID, unsigned vc,
+          void* data, unsigned int size);
   void* Pop(unsigned ouput_deviceID);
   void Advance();
 
   bool Busy() const;
-  bool Has_Buffer_In(unsigned input_deviceID, unsigned size,
+  bool Has_Buffer_In(unsigned input_deviceID, unsigned vc, unsigned size,
                      bool update_counter = false);
-  bool Has_Buffer_Out(unsigned output_deviceID, unsigned size);
+  bool Has_Buffer_Out(unsigned output_deviceID, unsigned vc, unsigned size);
 
   // some stats
   unsigned long long cycles;
@@ -89,8 +91,8 @@ class xbar_router {
     void* data;
     unsigned output_deviceID;
   };
-  vector<queue<Packet> > in_buffers;
-  vector<queue<Packet> > out_buffers;
+  vector<vector<queue<Packet>>> in_buffers;
+  vector<vector<queue<Packet>>> out_buffers;
   unsigned _n_shader, _n_mem, total_nodes;
   unsigned in_buffer_limit, out_buffer_limit;
   vector<unsigned> next_node;  // used for iSLIP arbit
@@ -101,6 +103,10 @@ class xbar_router {
   Arbiteration_type arbit_type;
   unsigned verbose;
 
+  unsigned num_vcs;
+  vector<unsigned> prev_vc_advanced;
+  vector<unsigned> prev_vc_popped;
+
   unsigned grant_cycles;
   unsigned grant_cycles_count;
 
@@ -109,19 +115,19 @@ class xbar_router {
 
 class LocalInterconnect {
  public:
-  LocalInterconnect(const struct inct_config& m_localinct_config);
+  LocalInterconnect(const struct icnt_config& m_localicnt_config);
   ~LocalInterconnect();
-  static LocalInterconnect* New(const struct inct_config& m_inct_config);
+  static LocalInterconnect* New(const struct icnt_config& m_icnt_config);
   void CreateInterconnect(unsigned n_shader, unsigned n_mem);
 
   // node side functions
   void Init();
   void Push(unsigned input_deviceID, unsigned output_deviceID, void* data,
-            unsigned int size);
+            unsigned int size, bool is_pim);
   void* Pop(unsigned ouput_deviceID);
   void Advance();
   bool Busy() const;
-  bool HasBuffer(unsigned deviceID, unsigned int size) const;
+  bool HasBuffer(unsigned deviceID, unsigned int size, bool is_pim) const;
   void DisplayStats() const;
   void DisplayOverallStats() const;
   unsigned GetFlitSize() const;
@@ -129,10 +135,11 @@ class LocalInterconnect {
   void DisplayState(FILE* fp) const;
 
  protected:
-  const inct_config& m_inct_config;
+  const icnt_config& m_icnt_config;
 
   unsigned n_shader, n_mem;
   unsigned n_subnets;
+  unsigned n_shader_to_mem_vcs;
   vector<xbar_router*> net;
 };
 

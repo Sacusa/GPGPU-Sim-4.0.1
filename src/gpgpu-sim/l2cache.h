@@ -105,6 +105,7 @@ class memory_partition_unit {
   class memory_stats_t *m_stats;
   class memory_sub_partition **m_sub_partition;
   class dram_t *m_dram;
+  unsigned shader_to_mem_vcs;
 
   class arbitration_metadata {
    public:
@@ -142,8 +143,10 @@ class memory_partition_unit {
   struct dram_delay_t {
     unsigned long long ready_cycle;
     class mem_fetch *req;
+    bool is_pim() { return req->is_pim(); }
   };
-  std::list<dram_delay_t> m_dram_latency_queue;
+  std::vector<std::list<dram_delay_t>> m_dram_latency_queue;
+  unsigned m_prev_dram_latency_queue_vc;
 
   class gpgpu_sim *m_gpu;
 };
@@ -160,9 +163,9 @@ class memory_sub_partition {
 
   void cache_cycle(unsigned cycle);
 
-  bool full() const;
-  bool full(unsigned size) const;
-  void push(class mem_fetch *mf, unsigned long long clock_cycle);
+  bool full(unsigned vc) const;
+  bool full(unsigned vc, unsigned size) const;
+  void push(class mem_fetch *mf, unsigned vc, unsigned long long clock_cycle);
   class mem_fetch *pop();
   class mem_fetch *top();
   void set_done(mem_fetch *mf);
@@ -171,9 +174,9 @@ class memory_sub_partition {
   unsigned invalidateL2();
 
   // interface to L2_dram_queue
-  bool L2_dram_queue_empty() const;
-  class mem_fetch *L2_dram_queue_top() const;
-  void L2_dram_queue_pop();
+  bool L2_dram_queue_empty(unsigned vc) const;
+  class mem_fetch *L2_dram_queue_top(unsigned vc) const;
+  void L2_dram_queue_pop(unsigned vc);
 
   // interface to dram_L2_queue
   bool dram_L2_queue_full() const;
@@ -196,6 +199,9 @@ class memory_sub_partition {
     m_memcpy_cycle_offset += 1;
   }
 
+  unsigned get_prev_L2_dram_vc() { return m_prev_L2_dram_vc; }
+  void set_prev_L2_dram_vc(unsigned vc) { m_prev_L2_dram_vc = vc; }
+
  private:
   // data
   unsigned m_id;  //< the global sub partition ID
@@ -204,17 +210,23 @@ class memory_sub_partition {
   class L2interface *m_L2interface;
   class gpgpu_sim *m_gpu;
   partition_mf_allocator *m_mf_allocator;
+  unsigned shader_to_mem_vcs;
 
   // model delay of ROP units with a fixed latency
   struct rop_delay_t {
     unsigned long long ready_cycle;
     class mem_fetch *req;
   };
-  std::queue<rop_delay_t> m_rop;
+  std::vector<std::queue<rop_delay_t>> m_rop;
+  unsigned m_prev_rop_vc;
 
   // these are various FIFOs between units within a memory partition
-  fifo_pipeline<mem_fetch> *m_icnt_L2_queue;
-  fifo_pipeline<mem_fetch> *m_L2_dram_queue;
+  std::vector<fifo_pipeline<mem_fetch> *> m_icnt_L2_queue;
+  unsigned m_prev_icnt_L2_vc;
+
+  std::vector<fifo_pipeline<mem_fetch> *> m_L2_dram_queue;
+  unsigned m_prev_L2_dram_vc;
+
   fifo_pipeline<mem_fetch> *m_dram_L2_queue;
   fifo_pipeline<mem_fetch> *m_L2_icnt_queue;  // L2 cache hit response queue
 
@@ -240,19 +252,35 @@ class memory_sub_partition {
 
 class L2interface : public mem_fetch_interface {
  public:
-  L2interface(memory_sub_partition *unit) { m_unit = unit; }
+  L2interface(memory_sub_partition *unit, unsigned num_vcs) {
+      m_unit = unit;
+      m_num_vcs = num_vcs;
+  }
   virtual ~L2interface() {}
   virtual bool full(unsigned size, bool write, bool pim) const {
-    // assume read and write packets all same size
-    return m_unit->m_L2_dram_queue->full();
+    // assume all packets are same size
+    if (m_num_vcs > 1) {
+      if (pim) { return m_unit->m_L2_dram_queue[PIM_VC]->full(); }
+      else     { return m_unit->m_L2_dram_queue[MEM_VC]->full(); }
+    }
+    else {
+      return m_unit->m_L2_dram_queue[0]->full();
+    }
   }
   virtual void push(mem_fetch *mf) {
     mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE, 0 /*FIXME*/);
-    m_unit->m_L2_dram_queue->push(mf);
+    if (m_num_vcs > 1) {
+      if (mf->is_pim()) { m_unit->m_L2_dram_queue[PIM_VC]->push(mf); }
+      else              { m_unit->m_L2_dram_queue[MEM_VC]->push(mf); }
+    }
+    else {
+      m_unit->m_L2_dram_queue[0]->push(mf);
+    }
   }
 
  private:
   memory_sub_partition *m_unit;
+  unsigned m_num_vcs;
 };
 
 #endif

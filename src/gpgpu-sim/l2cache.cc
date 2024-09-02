@@ -77,6 +77,11 @@ memory_partition_unit::memory_partition_unit(unsigned partition_id,
     m_sub_partition[p] =
         new memory_sub_partition(sub_partition_id, m_config, stats, gpu);
   }
+
+  shader_to_mem_vcs = gpu->get_config().get_shader_to_mem_vcs();
+
+  m_dram_latency_queue.resize(shader_to_mem_vcs);
+  m_prev_dram_latency_queue_vc = 0;
 }
 
 void memory_partition_unit::handle_memcpy_to_gpu(
@@ -221,38 +226,57 @@ int memory_partition_unit::global_sub_partition_id_to_local_id(
 void memory_partition_unit::simple_dram_model_cycle() {
   // pop completed memory request from dram and push it to dram-to-L2 queue
   // of the original sub partition
-  if (!m_dram_latency_queue.empty() &&
-      ((m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle) >=
-       m_dram_latency_queue.front().ready_cycle)) {
-    mem_fetch *mf_return = m_dram_latency_queue.front().req;
-    if (mf_return->get_access_type() != L1_WRBK_ACC &&
-        mf_return->get_access_type() != L2_WRBK_ACC) {
-      mf_return->set_reply();
+  // Note for multiple VCs: we scan all the VCs and find the first with a
+  // completed request that can be returned (i.e., there is space in the
+  // DRAM-to-host queue). This breaks the older assumption of requests
+  // returning in FIFO order since there can be reordering across VCs.
+  for (unsigned vc_iter = 0; vc_iter < shader_to_mem_vcs; vc_iter++) {
+    unsigned vc = (vc_iter + m_prev_dram_latency_queue_vc + 1) % \
+                  shader_to_mem_vcs;
 
-      unsigned dest_global_spid = mf_return->get_sub_partition_id();
-      int dest_spid = global_sub_partition_id_to_local_id(dest_global_spid);
-      assert(m_sub_partition[dest_spid]->get_id() == dest_global_spid);
-      if (!m_sub_partition[dest_spid]->dram_L2_queue_full()) {
-        if (mf_return->get_access_type() == L1_WRBK_ACC) {
-          m_sub_partition[dest_spid]->set_done(mf_return);
-          delete mf_return;
-        } else {
-          m_sub_partition[dest_spid]->dram_L2_queue_push(mf_return);
-          mf_return->set_status(
-              IN_PARTITION_DRAM_TO_L2_QUEUE,
-              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-          m_arbitration_metadata.return_credit(dest_spid);
-          MEMPART_DPRINTF(
-              "mem_fetch request %p return from dram to sub partition %d\n",
-              mf_return, dest_spid);
+    if (!m_dram_latency_queue[vc].empty() &&
+        ((m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle) >=
+         m_dram_latency_queue[vc].front().ready_cycle)) {
+
+      mem_fetch *mf_return = m_dram_latency_queue[vc].front().req;
+
+      if (mf_return->get_access_type() != L1_WRBK_ACC &&
+          mf_return->get_access_type() != L2_WRBK_ACC) {
+
+        mf_return->set_reply();
+
+        unsigned dest_global_spid = mf_return->get_sub_partition_id();
+        int dest_spid = global_sub_partition_id_to_local_id(dest_global_spid);
+        assert(m_sub_partition[dest_spid]->get_id() == dest_global_spid);
+
+        if (!m_sub_partition[dest_spid]->dram_L2_queue_full()) {
+          if (mf_return->get_access_type() == L1_WRBK_ACC) {
+            m_sub_partition[dest_spid]->set_done(mf_return);
+            delete mf_return;
+          } else {
+            m_sub_partition[dest_spid]->dram_L2_queue_push(mf_return);
+            mf_return->set_status(
+                IN_PARTITION_DRAM_TO_L2_QUEUE,
+                m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+            m_arbitration_metadata.return_credit(dest_spid);
+            MEMPART_DPRINTF(
+                "mem_fetch request %p return from dram to sub partition %d\n",
+                mf_return, dest_spid);
+          }
+
+          m_dram_latency_queue[vc].pop_front();
+          m_prev_dram_latency_queue_vc = vc;
+          break;
         }
-        m_dram_latency_queue.pop_front();
-      }
 
-    } else {
-      this->set_done(mf_return);
-      delete mf_return;
-      m_dram_latency_queue.pop_front();
+      } else {
+        this->set_done(mf_return);
+        delete mf_return;
+
+        m_dram_latency_queue[vc].pop_front();
+        m_prev_dram_latency_queue_vc = vc;
+        break;
+      }
     }
   }
 
@@ -261,31 +285,42 @@ void memory_partition_unit::simple_dram_model_cycle() {
   // L2->DRAM queue to DRAM latency queue
   // Arbitrate among multiple L2 subpartitions
   int last_issued_partition = m_arbitration_metadata.last_borrower();
-  for (unsigned p = 0; p < m_config->m_n_sub_partition_per_memory_channel;
-       p++) {
+  bool issued_L2_dram_queue = false;
+
+  for (unsigned p = 0; (p < m_config->m_n_sub_partition_per_memory_channel) &&
+       !issued_L2_dram_queue; p++) {
     int spid = (p + last_issued_partition + 1) %
                m_config->m_n_sub_partition_per_memory_channel;
-    if (!m_sub_partition[spid]->L2_dram_queue_empty() &&
-        can_issue_to_dram(spid)) {
-      mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top();
-      if (m_dram->full(mf->is_write(), mf->is_pim())) break;
 
-      m_sub_partition[spid]->L2_dram_queue_pop();
-      MEMPART_DPRINTF(
-          "Issue mem_fetch request %p from sub partition %d to dram\n", mf,
-          spid);
-      dram_delay_t d;
-      d.req = mf;
-      d.ready_cycle = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
-                      m_config->dram_latency;
-      m_dram_latency_queue.push_back(d);
-      mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE,
-                     m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-      m_arbitration_metadata.borrow_credit(spid);
-      break;  // the DRAM should only accept one request per cycle
+    for (unsigned vc_iter = 0; vc_iter < shader_to_mem_vcs; vc_iter++) {
+      unsigned vc = (m_sub_partition[spid]->get_prev_L2_dram_vc() + vc_iter +
+                     1) % shader_to_mem_vcs;
+
+      if (!m_sub_partition[spid]->L2_dram_queue_empty(vc) &&
+          can_issue_to_dram(spid)) {
+        mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top(vc);
+        if (m_dram->full(mf->is_write(), mf->is_pim())) continue;
+
+        m_sub_partition[spid]->L2_dram_queue_pop(vc);
+        MEMPART_DPRINTF(
+            "Issue mem_fetch request %p from sub partition/vc %d/%u to dram\n",
+            mf, spid, vc);
+        dram_delay_t d;
+        d.req = mf;
+        d.ready_cycle = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
+                        m_config->dram_latency;
+        m_dram_latency_queue[vc].push_back(d);
+        mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE,
+                       m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+        m_arbitration_metadata.borrow_credit(spid);
+
+        // the DRAM should only accept one request per cycle
+        m_sub_partition[spid]->set_prev_L2_dram_vc(vc);
+        issued_L2_dram_queue = true;
+        break;
+      }
     }
   }
-  //}
 }
 
 void memory_partition_unit::dram_cycle() {
@@ -323,41 +358,61 @@ void memory_partition_unit::dram_cycle() {
   // L2->DRAM queue to DRAM latency queue
   // Arbitrate among multiple L2 subpartitions
   int last_issued_partition = m_arbitration_metadata.last_borrower();
-  for (unsigned p = 0; p < m_config->m_n_sub_partition_per_memory_channel;
-       p++) {
+  bool issued_L2_dram_queue = false;
+
+  for (unsigned p = 0; (p < m_config->m_n_sub_partition_per_memory_channel) &&
+       !issued_L2_dram_queue; p++) {
     int spid = (p + last_issued_partition + 1) %
                m_config->m_n_sub_partition_per_memory_channel;
-    if (!m_sub_partition[spid]->L2_dram_queue_empty() &&
-        can_issue_to_dram(spid)) {
-      mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top();
-      if (m_dram->full(mf->is_write(), mf->is_pim())) break;
 
-      m_sub_partition[spid]->L2_dram_queue_pop();
-      MEMPART_DPRINTF(
-          "Issue mem_fetch request %p from sub partition %d to dram\n", mf,
-          spid);
-      dram_delay_t d;
-      d.req = mf;
-      d.ready_cycle = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
-                      m_config->dram_latency;
-      m_dram_latency_queue.push_back(d);
-      mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE,
-                     m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-      m_arbitration_metadata.borrow_credit(spid);
-      break;  // the DRAM should only accept one request per cycle
+    for (unsigned vc_iter = 0; vc_iter < shader_to_mem_vcs; vc_iter++) {
+      unsigned vc = (m_sub_partition[spid]->get_prev_L2_dram_vc() + vc_iter +
+                     1) % shader_to_mem_vcs;
+
+      if (!m_sub_partition[spid]->L2_dram_queue_empty(vc) &&
+          can_issue_to_dram(spid)) {
+        mem_fetch *mf = m_sub_partition[spid]->L2_dram_queue_top(vc);
+        if (m_dram->full(mf->is_write(), mf->is_pim())) continue;
+
+        m_sub_partition[spid]->L2_dram_queue_pop(vc);
+        MEMPART_DPRINTF(
+            "Issue mem_fetch request %p from sub partition/vc %d/%u to dram\n",
+            mf, spid, vc);
+        dram_delay_t d;
+        d.req = mf;
+        d.ready_cycle = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
+                        m_config->dram_latency;
+        m_dram_latency_queue[vc].push_back(d);
+        mf->set_status(IN_PARTITION_DRAM_LATENCY_QUEUE,
+                       m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+        m_arbitration_metadata.borrow_credit(spid);
+
+        // the DRAM should only accept one request per cycle
+        m_sub_partition[spid]->set_prev_L2_dram_vc(vc);
+        issued_L2_dram_queue = true;
+        break;
+      }
     }
   }
-  //}
 
   // DRAM latency queue
-  if (!m_dram_latency_queue.empty() &&
-      ((m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle) >=
-       m_dram_latency_queue.front().ready_cycle) &&
-      !m_dram->full(m_dram_latency_queue.front().req->is_write(),
-          m_dram_latency_queue.front().req->is_pim())) {
-    mem_fetch *mf = m_dram_latency_queue.front().req;
-    m_dram_latency_queue.pop_front();
-    m_dram->push(mf);
+  for (unsigned vc_iter = 0; vc_iter < shader_to_mem_vcs; vc_iter++) {
+    unsigned vc = (vc_iter + m_prev_dram_latency_queue_vc + 1) % \
+                  shader_to_mem_vcs;
+
+    if (!m_dram_latency_queue[vc].empty() &&
+        ((m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle) >=
+         m_dram_latency_queue[vc].front().ready_cycle) &&
+        !m_dram->full(m_dram_latency_queue[vc].front().req->is_write(),
+            m_dram_latency_queue[vc].front().req->is_pim())) {
+
+      mem_fetch *mf = m_dram_latency_queue[vc].front().req;
+      m_dram_latency_queue[vc].pop_front();
+      m_dram->push(mf);
+
+      m_prev_dram_latency_queue_vc = vc;
+      break;
+    }
   }
 }
 
@@ -389,17 +444,25 @@ void memory_partition_unit::print(FILE *fp) const {
   //     p++) {
   //  m_sub_partition[p]->print(fp);
   //}
-  fprintf(fp, "In Dram Latency Queue (total = %zd): \n",
-          m_dram_latency_queue.size());
-  //for (std::list<dram_delay_t>::const_iterator mf_dlq =
-  //         m_dram_latency_queue.begin();
-  //     mf_dlq != m_dram_latency_queue.end(); ++mf_dlq) {
-  //  mem_fetch *mf = mf_dlq->req;
-  //  fprintf(fp, "Ready @ %llu - ", mf_dlq->ready_cycle);
-  //  if (mf)
-  //    mf->print(fp);
-  //  else
-  //    fprintf(fp, " <NULL mem_fetch?>\n");
+
+  unsigned tot_dram_latency_queue_size = 0;
+  for (unsigned vc = 0; vc < shader_to_mem_vcs; vc++) {
+    tot_dram_latency_queue_size += m_dram_latency_queue[vc].size();
+  }
+  fprintf(fp, "In Dram Latency Queue (total = %u): \n",
+          tot_dram_latency_queue_size);
+
+  //for (unsigned vc = 0; vc < shader_to_mem_vcs; vc++) {
+  //  for (std::list<dram_delay_t>::const_iterator mf_dlq =
+  //           m_dram_latency_queue[vc].begin();
+  //       mf_dlq != m_dram_latency_queue[vc].end(); ++mf_dlq) {
+  //    mem_fetch *mf = mf_dlq->req;
+  //    fprintf(fp, "Ready @ %llu - ", mf_dlq->ready_cycle);
+  //    if (mf)
+  //      mf->print(fp);
+  //    else
+  //      fprintf(fp, " <NULL mem_fetch?>\n");
+  //  }
   //}
   m_dram->print(fp);
 }
@@ -413,12 +476,13 @@ memory_sub_partition::memory_sub_partition(unsigned sub_partition_id,
   m_stats = stats;
   m_gpu = gpu;
   m_memcpy_cycle_offset = 0;
+  shader_to_mem_vcs = gpu->get_config().get_shader_to_mem_vcs();
 
   assert(m_id < m_config->m_n_mem_sub_partition);
 
   char L2c_name[32];
   snprintf(L2c_name, 32, "L2_bank_%03d", m_id);
-  m_L2interface = new L2interface(this);
+  m_L2interface = new L2interface(this, shader_to_mem_vcs);
   m_mf_allocator = new partition_mf_allocator(config);
 
   if (!m_config->m_L2_config.disabled())
@@ -432,16 +496,34 @@ memory_sub_partition::memory_sub_partition(unsigned sub_partition_id,
   unsigned int L2_icnt;
   sscanf(m_config->gpgpu_L2_queue_config, "%u:%u:%u:%u", &icnt_L2, &L2_dram,
          &dram_L2, &L2_icnt);
-  m_icnt_L2_queue = new fifo_pipeline<mem_fetch>("icnt-to-L2", 0, icnt_L2);
-  m_L2_dram_queue = new fifo_pipeline<mem_fetch>("L2-to-dram", 0, L2_dram);
+  icnt_L2 /= shader_to_mem_vcs;
+  L2_dram /= shader_to_mem_vcs;
+
+  for (unsigned vc = 0; vc < shader_to_mem_vcs; vc++) {
+    m_icnt_L2_queue.push_back(new fifo_pipeline<mem_fetch>("icnt-to-L2", 0,
+          icnt_L2));
+    m_L2_dram_queue.push_back(new fifo_pipeline<mem_fetch>("L2-to-dram", 0,
+          L2_dram));
+  }
+
+  // Response queues do not have virtual channels
   m_dram_L2_queue = new fifo_pipeline<mem_fetch>("dram-to-L2", 0, dram_L2);
   m_L2_icnt_queue = new fifo_pipeline<mem_fetch>("L2-to-icnt", 0, L2_icnt);
+
+  m_prev_icnt_L2_vc = 0;
+  m_prev_L2_dram_vc = 0;
+
+  m_rop.resize(shader_to_mem_vcs);
+  m_prev_rop_vc = 0;
+
   wb_addr = -1;
 }
 
 memory_sub_partition::~memory_sub_partition() {
-  delete m_icnt_L2_queue;
-  delete m_L2_dram_queue;
+  for (unsigned vc = 0; vc < shader_to_mem_vcs; vc++) {
+    delete m_icnt_L2_queue[vc];
+    delete m_L2_dram_queue[vc];
+  }
   delete m_dram_L2_queue;
   delete m_L2_icnt_queue;
   delete m_L2cache;
@@ -502,99 +584,129 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
   if (!m_config->m_L2_config.disabled()) m_L2cache->cycle();
 
   // new L2 texture accesses and/or non-texture accesses
-  if (!m_L2_dram_queue->full() && !m_icnt_L2_queue->empty()) {
-    mem_fetch *mf = m_icnt_L2_queue->top();
-    if (!m_config->m_L2_config.disabled() &&
-        ((m_config->m_L2_texure_only && mf->istexture()) ||
-         (!m_config->m_L2_texure_only)) &&
-        (!mf->is_pim())) {
-      // L2 is enabled and access is for L2
-      bool output_full = m_L2_icnt_queue->full();
-      bool port_free = m_L2cache->data_port_free();
-      if (!output_full && port_free) {
-        std::list<cache_event> events;
-        enum cache_request_status status =
-            m_L2cache->access(mf->get_addr(), mf,
-                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
-                                  m_memcpy_cycle_offset,
-                              events);
-        bool write_sent = was_write_sent(events);
-        bool read_sent = was_read_sent(events);
-        MEM_SUBPART_DPRINTF("Probing L2 cache Address=%llx, status=%u\n",
-                            mf->get_addr(), status);
+  bool icnt_L2_queue_serviced = false;
 
-        if (status == HIT) {
-          if (!write_sent) {
-            // L2 cache replies
-            assert(!read_sent);
-            if (mf->get_access_type() == L1_WRBK_ACC) {
-              m_request_tracker.erase(mf);
-              delete mf;
+  for (unsigned vc_iter = 0; vc_iter < shader_to_mem_vcs; vc_iter++) {
+    unsigned vc = (m_prev_icnt_L2_vc + vc_iter + 1) % shader_to_mem_vcs;
+
+    if (!m_L2_dram_queue[vc]->full() && !m_icnt_L2_queue[vc]->empty()) {
+      mem_fetch *mf = m_icnt_L2_queue[vc]->top();
+      if (!m_config->m_L2_config.disabled() &&
+          ((m_config->m_L2_texure_only && mf->istexture()) ||
+           (!m_config->m_L2_texure_only)) &&
+          (!mf->is_pim())) {
+        // L2 is enabled and access is for L2
+        bool output_full = m_L2_icnt_queue->full();
+        bool port_free = m_L2cache->data_port_free();
+        if (!output_full && port_free) {
+          std::list<cache_event> events;
+          enum cache_request_status status =
+              m_L2cache->access(mf->get_addr(), mf,
+                                m_gpu->gpu_sim_cycle +
+                                    m_gpu->gpu_tot_sim_cycle +
+                                    m_memcpy_cycle_offset,
+                                events);
+          bool write_sent = was_write_sent(events);
+          bool read_sent = was_read_sent(events);
+          MEM_SUBPART_DPRINTF("Probing L2 cache Address=%llx, status=%u\n",
+                              mf->get_addr(), status);
+
+          if (status == HIT) {
+            if (!write_sent) {
+              // L2 cache replies
+              assert(!read_sent);
+              if (mf->get_access_type() == L1_WRBK_ACC) {
+                m_request_tracker.erase(mf);
+                delete mf;
+              } else {
+                mf->set_reply();
+                mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
+                               m_gpu->gpu_sim_cycle +
+                                  m_gpu->gpu_tot_sim_cycle);
+                m_L2_icnt_queue->push(mf);
+              }
             } else {
+              assert(write_sent);
+            }
+
+            m_icnt_L2_queue[vc]->pop();
+            icnt_L2_queue_serviced = true;
+          } else if (status != RESERVATION_FAIL) {
+            if (mf->is_write() &&
+                (m_config->m_L2_config.m_write_alloc_policy ==
+                     FETCH_ON_WRITE ||
+                 m_config->m_L2_config.m_write_alloc_policy ==
+                     LAZY_FETCH_ON_READ) &&
+                !was_writeallocate_sent(events)) {
               mf->set_reply();
               mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
               m_L2_icnt_queue->push(mf);
             }
-            m_icnt_L2_queue->pop();
+            // L2 cache accepted request
+            m_icnt_L2_queue[vc]->pop();
+            icnt_L2_queue_serviced = true;
           } else {
-            assert(write_sent);
-            m_icnt_L2_queue->pop();
+            assert(!write_sent);
+            assert(!read_sent);
+            // L2 cache lock-up: will try again next cycle
           }
-        } else if (status != RESERVATION_FAIL) {
-          if (mf->is_write() &&
-              (m_config->m_L2_config.m_write_alloc_policy == FETCH_ON_WRITE ||
-               m_config->m_L2_config.m_write_alloc_policy ==
-                   LAZY_FETCH_ON_READ) &&
-              !was_writeallocate_sent(events)) {
-            mf->set_reply();
-            mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
-                           m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-            m_L2_icnt_queue->push(mf);
-          }
-          // L2 cache accepted request
-          m_icnt_L2_queue->pop();
-        } else {
-          assert(!write_sent);
-          assert(!read_sent);
-          // L2 cache lock-up: will try again next cycle
         }
+      } else {
+        // L2 is disabled or non-texture access to texture-only L2
+        mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE,
+                       m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+        m_L2_dram_queue[vc]->push(mf);
+        m_icnt_L2_queue[vc]->pop();
+        icnt_L2_queue_serviced = true;
       }
-    } else {
-      // L2 is disabled or non-texture access to texture-only L2
-      mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE,
-                     m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-      m_L2_dram_queue->push(mf);
-      m_icnt_L2_queue->pop();
+    }
+
+    if (icnt_L2_queue_serviced) {
+      m_prev_icnt_L2_vc = vc;
+      break;
     }
   }
 
   // ROP delay queue
-  if (!m_rop.empty() && (cycle >= m_rop.front().ready_cycle) &&
-      !m_icnt_L2_queue->full()) {
-    mem_fetch *mf = m_rop.front().req;
-    m_rop.pop();
-    m_icnt_L2_queue->push(mf);
-    mf->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
-                   m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+  for (unsigned vc_iter = 0; vc_iter < shader_to_mem_vcs; vc_iter++) {
+    unsigned vc = (m_prev_rop_vc + vc_iter + 1) % shader_to_mem_vcs;
+
+    if (!m_rop[vc].empty() && (cycle >= m_rop[vc].front().ready_cycle)) {
+      mem_fetch *mf = m_rop[vc].front().req;
+
+      if (!m_icnt_L2_queue[vc]->full()) {
+        m_rop[vc].pop();
+        m_icnt_L2_queue[vc]->push(mf);
+        mf->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
+                       m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+
+        m_prev_rop_vc = vc;
+        break;
+      }
+    }
   }
 }
 
-bool memory_sub_partition::full() const { return m_icnt_L2_queue->full(); }
-
-bool memory_sub_partition::full(unsigned size) const {
-  return m_icnt_L2_queue->is_avilable_size(size);
+bool memory_sub_partition::full(unsigned vc) const {
+  return m_icnt_L2_queue[vc]->full();
 }
 
-bool memory_sub_partition::L2_dram_queue_empty() const {
-  return m_L2_dram_queue->empty();
+bool memory_sub_partition::full(unsigned vc, unsigned size) const {
+  return m_icnt_L2_queue[vc]->is_avilable_size(size);
 }
 
-class mem_fetch *memory_sub_partition::L2_dram_queue_top() const {
-  return m_L2_dram_queue->top();
+bool memory_sub_partition::L2_dram_queue_empty(unsigned vc) const {
+  return m_L2_dram_queue[vc]->empty();
 }
 
-void memory_sub_partition::L2_dram_queue_pop() { m_L2_dram_queue->pop(); }
+class mem_fetch *memory_sub_partition::L2_dram_queue_top(unsigned vc) const {
+  return m_L2_dram_queue[vc]->top();
+}
+
+void memory_sub_partition::L2_dram_queue_pop(unsigned vc) {
+  m_L2_dram_queue[vc]->pop();
+}
 
 bool memory_sub_partition::dram_L2_queue_full() const {
   return m_dram_L2_queue->full();
@@ -768,7 +880,8 @@ memory_sub_partition::breakdown_request_to_sector_requests(mem_fetch *mf) {
   return result;
 }
 
-void memory_sub_partition::push(mem_fetch *m_req, unsigned long long cycle) {
+void memory_sub_partition::push(mem_fetch *m_req, unsigned vc,
+    unsigned long long cycle) {
   if (m_req) {
     m_stats->memlatstat_icnt2mem_pop(m_req);
     std::vector<mem_fetch *> reqs;
@@ -781,14 +894,21 @@ void memory_sub_partition::push(mem_fetch *m_req, unsigned long long cycle) {
       mem_fetch *req = reqs[i];
       m_request_tracker.insert(req);
       if (req->istexture()) {
-        m_icnt_L2_queue->push(req);
+        m_icnt_L2_queue[vc]->push(req);
         req->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
                         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
       } else {
         rop_delay_t r;
         r.req = req;
         r.ready_cycle = cycle + m_config->rop_latency;
-        m_rop.push(r);
+
+        unsigned vc = 0;
+        if (shader_to_mem_vcs > 1) {
+          if (req->is_pim()) { vc = PIM_VC; }
+          else               { vc = MEM_VC; }
+        }
+
+        m_rop[vc].push(r);
         req->set_status(IN_PARTITION_ROP_DELAY,
                         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
       }

@@ -80,7 +80,7 @@ xbar_router::xbar_router(unsigned router_id, enum Interconnect_type m_type,
   in_buffer_full = 0;
   out_buffer_util = 0;
   in_buffer_util = 0;
-  packets_num = 0;
+  packets_num.resize(num_vcs, 0);
   conflicts_util = 0;
   cycles_util = 0;
   reqs_util = 0;
@@ -92,21 +92,27 @@ void xbar_router::Push(unsigned input_deviceID, unsigned output_deviceID,
                        unsigned vc, void* data, unsigned int size) {
   assert((input_deviceID < total_nodes) && (vc < num_vcs));
   in_buffers[input_deviceID][vc].push(Packet(data, output_deviceID));
-  packets_num++;
+  packets_num[vc]++;
+
+  if (verbose) {
+    printf("%d : cycle %d : pushing new request from id/vc %u/%u. "
+        "Occupancy = %u\n", m_id, cycles, input_deviceID, vc,
+        in_buffers[input_deviceID][vc].size());
+  }
 }
 
-void* xbar_router::Pop(unsigned output_deviceID) {
+void* xbar_router::Pop(unsigned output_deviceID, unsigned vc) {
   assert(output_deviceID < total_nodes);
-  void* data = NULL;
+  void *data = NULL;
 
-  for (unsigned vc_iter = 0; vc_iter < num_vcs; vc_iter++) {
-    unsigned vc = (prev_vc_popped[output_deviceID] + vc_iter + 1) % num_vcs;
+  if (!out_buffers[output_deviceID][vc].empty()) {
+    data = out_buffers[output_deviceID][vc].front().data;
+    out_buffers[output_deviceID][vc].pop();
 
-    if (!out_buffers[output_deviceID][vc].empty()) {
-      data = out_buffers[output_deviceID][vc].front().data;
-      out_buffers[output_deviceID][vc].pop();
-      prev_vc_popped[output_deviceID] = vc;
-      break;
+    if (verbose) {
+      printf("%d : cycle %d : popping request for id/vc %u/%u. "
+          "Occupancy = %u\n", m_id, cycles, output_deviceID, vc,
+          out_buffers[output_deviceID][vc].size());
     }
   }
 
@@ -166,6 +172,12 @@ void xbar_router::RR_Advance() {
             // every cycle
             issued[_packet.output_deviceID] = true;
             reqs++;
+
+            if (verbose) {
+              printf("%d : cycle %d : send req from %d to %d over vc %u\n",
+                  m_id, cycles, node_id, i, vc);
+            }
+
             break;
           } else {
             conflict_sub++;
@@ -278,8 +290,8 @@ void xbar_router::iSLIP_Advance() {
             prev_vc_advanced[node_id] = vc;
 
             if (verbose) {
-              printf("%d : cycle %d : send req from %d to %d\n", m_id, cycles,
-                     node_id, i - _n_shader);
+              printf("%d : cycle %d : send req from %d to %d over vc %u\n",
+                  m_id, cycles, node_id, i, vc);
             }
 
             if (grant_cycles_count == 1) {
@@ -293,8 +305,8 @@ void xbar_router::iSLIP_Advance() {
                   Packet _packet2 = in_buffers[node_id2][vc].front();
 
                   if (_packet2.output_deviceID == i)
-                    printf("%d : cycle %d : cannot send req from %d to %d\n",
-                           m_id, cycles, node_id2, i - _n_shader);
+                    printf("%d : cycle %d : cannot send req from %d to %d over"
+                        " vc %u\n", m_id, cycles, node_id2, i, vc);
                 }
               }
             }
@@ -429,12 +441,12 @@ void LocalInterconnect::Push(unsigned input_deviceID, unsigned output_deviceID,
   net[subnet]->Push(input_deviceID, output_deviceID, vc, data, size);
 }
 
-void* LocalInterconnect::Pop(unsigned output_deviceID) {
+void* LocalInterconnect::Pop(unsigned output_deviceID, unsigned vc) {
   // 0-_n_shader-1 indicates reply(network 1), otherwise request(network 0)
   int subnet = 0;
   if (output_deviceID < n_shader) subnet = 1;
 
-  return net[subnet]->Pop(output_deviceID);
+  return net[subnet]->Pop(output_deviceID, vc);
 }
 
 void LocalInterconnect::Advance() {
@@ -468,11 +480,14 @@ bool LocalInterconnect::HasBuffer(unsigned deviceID, unsigned int size,
 }
 
 void LocalInterconnect::DisplayStats() const {
-  printf("Req_Network_injected_packets_num = %lld\n",
-         net[REQ_NET]->packets_num);
   printf("Req_Network_cycles = %lld\n", net[REQ_NET]->cycles);
-  printf("Req_Network_injected_packets_per_cycle = %12.4f \n",
-         (float)(net[REQ_NET]->packets_num) / (net[REQ_NET]->cycles));
+  for (unsigned vc = 0; vc < n_shader_to_mem_vcs; vc++) {
+    printf("Req_Network_injected_packets_num (vc=%u) = %lld\n",
+           vc, net[REQ_NET]->packets_num[vc]);
+    printf("Req_Network_injected_packets_per_cycle (vc=%u) = %12.4f \n",
+           vc,
+           (float)(net[REQ_NET]->packets_num[vc]) / (net[REQ_NET]->cycles));
+  }
   printf("Req_Network_conflicts_per_cycle = %12.4f\n",
          (float)(net[REQ_NET]->conflicts) / (net[REQ_NET]->cycles));
   printf("Req_Network_conflicts_per_cycle_util = %12.4f\n",
@@ -491,11 +506,14 @@ void LocalInterconnect::DisplayStats() const {
           net[REQ_NET]->active_out_buffers));
 
   printf("\n");
-  printf("Reply_Network_injected_packets_num = %lld\n",
-         net[REPLY_NET]->packets_num);
   printf("Reply_Network_cycles = %lld\n", net[REPLY_NET]->cycles);
-  printf("Reply_Network_injected_packets_per_cycle =  %12.4f\n",
-         (float)(net[REPLY_NET]->packets_num) / (net[REPLY_NET]->cycles));
+  for (unsigned vc = 0; vc < n_shader_to_mem_vcs; vc++) {
+    printf("Reply_Network_injected_packets_num (vc=%u) = %lld\n",
+           vc, net[REPLY_NET]->packets_num[vc]);
+    printf("Reply_Network_injected_packets_per_cycle (vc=%u) =  %12.4f\n",
+           vc,
+           (float)(net[REPLY_NET]->packets_num[vc]) / (net[REPLY_NET]->cycles));
+  }
   printf("Reply_Network_conflicts_per_cycle =  %12.4f\n",
          (float)(net[REPLY_NET]->conflicts) / (net[REPLY_NET]->cycles));
   printf(

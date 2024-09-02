@@ -71,8 +71,8 @@ static void intersim2_push(unsigned input, unsigned output, void* data,
   g_icnt_interface->Push(input, output, data, size);
 }
 
-static void* intersim2_pop(unsigned output) {
-  return g_icnt_interface->Pop(output);
+static void* intersim2_pop(unsigned output, unsigned vc) {
+  return g_icnt_interface->Pop(output, vc);
 }
 
 static void intersim2_transfer() { g_icnt_interface->Advance(); }
@@ -112,8 +112,8 @@ static void LocalInterconnect_push(unsigned input, unsigned output, void* data,
   g_localicnt_interface->Push(input, output, data, size, is_pim);
 }
 
-static void* LocalInterconnect_pop(unsigned output) {
-  return g_localicnt_interface->Pop(output);
+static void* LocalInterconnect_pop(unsigned output, unsigned vc) {
+  return g_localicnt_interface->Pop(output, vc);
 }
 
 static void LocalInterconnect_transfer() { g_localicnt_interface->Advance(); }

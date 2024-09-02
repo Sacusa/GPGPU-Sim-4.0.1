@@ -59,7 +59,7 @@ class xbar_router {
   ~xbar_router();
   void Push(unsigned input_deviceID, unsigned output_deviceID, unsigned vc,
           void* data, unsigned int size);
-  void* Pop(unsigned ouput_deviceID);
+  void* Pop(unsigned ouput_deviceID, unsigned vc);
   void Advance();
 
   bool Busy() const;
@@ -77,7 +77,7 @@ class xbar_router {
   unsigned long long out_buffer_util;
   unsigned long long in_buffer_full;
   unsigned long long in_buffer_util;
-  unsigned long long packets_num;
+  std::vector<unsigned long long> packets_num;
 
  private:
   void iSLIP_Advance();
@@ -124,7 +124,7 @@ class LocalInterconnect {
   void Init();
   void Push(unsigned input_deviceID, unsigned output_deviceID, void* data,
             unsigned int size, bool is_pim);
-  void* Pop(unsigned ouput_deviceID);
+  void* Pop(unsigned ouput_deviceID, unsigned vc);
   void Advance();
   bool Busy() const;
   bool HasBuffer(unsigned deviceID, unsigned int size, bool is_pim) const;

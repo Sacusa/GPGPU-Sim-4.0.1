@@ -860,6 +860,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   gpgpu_ctx = ctx;
   m_shader_config = &m_config.m_shader_config;
   m_memory_config = &m_config.m_memory_config;
+
   ctx->ptx_parser->set_ptx_warp_size(m_shader_config);
   ptx_file_line_stats_create_exposed_latency_tracker(m_config.num_shader());
 
@@ -931,6 +932,8 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   // Jin: functional simulation for CDP
   m_functional_sim = false;
   m_functional_sim_kernel = NULL;
+
+  m_prev_icnt_L2_vc.resize(m_memory_config->m_n_mem_sub_partition, 0);
 }
 
 int gpgpu_sim::shared_mem_size() const {
@@ -1865,14 +1868,33 @@ void gpgpu_sim::cycle() {
       // backed up) Note:This needs to be called in DRAM clock domain if there
       // is no L2 cache in the system In the worst case, we may need to push
       // SECTOR_CHUNCK_SIZE requests, so ensure you have enough buffer for them
-      if (m_memory_sub_partition[i]->full(SECTOR_CHUNCK_SIZE)) {
-        gpu_stall_dramfull++;
-      } else {
-        mem_fetch *mf = (mem_fetch *)icnt_pop(m_shader_config->mem2device(i));
-        m_memory_sub_partition[i]->push(mf, gpu_sim_cycle + gpu_tot_sim_cycle);
-        if (mf) partiton_reqs_in_parallel_per_cycle++;
+      bool is_dram_full = true;
+
+      for (unsigned vc_iter = 0; vc_iter < m_config.shader_to_mem_vcs;
+          vc_iter++) {
+        unsigned vc = (m_prev_icnt_L2_vc[i] + vc_iter + 1) % \
+                      m_config.shader_to_mem_vcs;
+
+        if (!m_memory_sub_partition[i]->full(vc, SECTOR_CHUNCK_SIZE)) {
+          mem_fetch *mf = (mem_fetch *)icnt_pop(m_shader_config->mem2device(i),
+              vc);
+          m_memory_sub_partition[i]->push(mf, vc,
+              gpu_sim_cycle + gpu_tot_sim_cycle);
+
+          is_dram_full = false;
+
+          if (mf) {
+            partiton_reqs_in_parallel_per_cycle++;
+            m_prev_icnt_L2_vc[i] = vc;
+            break;
+          }
+        }
       }
-      m_memory_sub_partition[i]->cache_cycle(gpu_sim_cycle + gpu_tot_sim_cycle);
+
+      if (is_dram_full) { gpu_stall_dramfull++; }
+
+      m_memory_sub_partition[i]->cache_cycle(gpu_sim_cycle +
+                                             gpu_tot_sim_cycle);
       m_memory_sub_partition[i]->accumulate_L2cache_stats(
           m_power_stats->pwr_mem_stat->l2_cache_stats[CURRENT_STAT_IDX]);
     }

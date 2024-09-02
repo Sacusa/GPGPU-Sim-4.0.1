@@ -4425,7 +4425,7 @@ void simt_core_cluster::icnt_cycle() {
     }
   }
   if (m_response_fifo.size() < m_config->n_simt_ejection_buffer_size) {
-    mem_fetch *mf = (mem_fetch *)::icnt_pop(m_cluster_id);
+    mem_fetch *mf = (mem_fetch *)::icnt_pop(m_cluster_id, 0);
     if (!mf) return;
     assert(mf->get_tpc() == m_cluster_id);
     assert(mf->get_type() == READ_REPLY || mf->get_type() == WRITE_ACK);

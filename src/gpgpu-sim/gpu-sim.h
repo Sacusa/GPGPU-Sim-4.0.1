@@ -412,6 +412,8 @@ class gpgpu_sim_config : public power_config,
 
   bool flush_l1() const { return gpgpu_flush_l1_cache; }
 
+  unsigned get_shader_to_mem_vcs() const { return shader_to_mem_vcs; }
+
  private:
   void init_clock_domains(void);
 
@@ -681,6 +683,9 @@ class gpgpu_sim : public gpgpu_t {
                                         //< clear the kernel information after
                                         // stat printout
   virtual void createSIMTCluster() = 0;
+
+  // Interconnect virtual channel metadata
+  std::vector<unsigned> m_prev_icnt_L2_vc;
 
  public:
   unsigned long long gpu_sim_insn;

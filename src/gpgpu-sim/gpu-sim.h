@@ -66,15 +66,18 @@ class gpgpu_context;
 
 extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
-enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1, DRAM_GI = 2, DRAM_I1 = 3,
-                   DRAM_I2 = 4, DRAM_I2A = 5, DRAM_I3 = 6, DRAM_I4A = 7,
-                   DRAM_I4A_NO_CAP = 8, DRAM_I4B = 9, DRAM_HILL_CLIMBING = 10,
-                   DRAM_I3_TIMER = 11, DRAM_I4B_NO_CAP = 12,
-                   DRAM_PIM_FRFCFS = 13, DRAM_GI_MEM = 14, DRAM_BLISS = 15,
-                   DRAM_QUEUE = 16, DRAM_QUEUE2 = 17, DRAM_QUEUE3 = 18,
-                   DRAM_QUEUE4 = 19, DRAM_PIM_FRFCFS_UTIL = 20,
-                   DRAM_MEM_FIRST = 21, DRAM_PIM_FIRST = 22,
-                   DRAM_DYN_THRESH = 23};
+enum dram_ctrl_t {
+    DRAM_FIFO = 0,
+    DRAM_FRFCFS = 1,
+    DRAM_MEM_FIRST = 2,
+    DRAM_PIM_FIRST = 3,
+    DRAM_GI = 4,
+    DRAM_GI_MEM = 5,
+    DRAM_BLISS = 6,
+    DRAM_RR = 7,
+    DRAM_PAWS = 8,
+    NUM_DRAM_POLICIES
+};
 
 enum request_vc_t { MEM_VC = 0, PIM_VC = 1 };
 

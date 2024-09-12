@@ -1,5 +1,5 @@
-#ifndef __DRAM_SCHED_PIM_FRFCFS_UTIL_H__
-#define __DRAM_SCHED_PIM_FRFCFS_UTIL_H__
+#ifndef __DRAM_SCHED_PAWS_H__
+#define __DRAM_SCHED_PAWS_H__
 
 #include <list>
 #include <map>
@@ -19,10 +19,10 @@ enum switch_reason {
 const std::string switch_reason_str[] = {"OutOfRequests", "CapExceeded",
     "OldestFirst"};
 
-class pim_frfcfs_util_scheduler : public dram_scheduler {
+class paws_scheduler : public dram_scheduler {
  public:
-  pim_frfcfs_util_scheduler(const memory_config *config, dram_t *dm,
-                   memory_stats_t *stats);
+  paws_scheduler(const memory_config *config, dram_t *dm,
+          memory_stats_t *stats);
   void add_req(dram_req_t *req) override;
   void update_mode() override;
   dram_req_t *schedule(unsigned bank, unsigned curr_row) override;

@@ -1,12 +1,12 @@
 #include "dram_sched.h"
-#include "dram_sched_i3_timer.h"
+#include "dram_sched_rr.h"
 #include "../abstract_hardware_model.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-i3_timer_scheduler::i3_timer_scheduler(const memory_config *config, dram_t *dm,
-    memory_stats_t *stats) : dram_scheduler(config, dm, stats) {
+rr_scheduler::rr_scheduler(const memory_config *config, dram_t *dm,
+        memory_stats_t *stats) : dram_scheduler(config, dm, stats) {
   m_non_pim_to_pim_switch_cycle = 0;
 
   m_last_pim_row = 0;
@@ -20,7 +20,7 @@ i3_timer_scheduler::i3_timer_scheduler(const memory_config *config, dram_t *dm,
   prev_pim_num = 0;
 }
 
-void i3_timer_scheduler::update_mode() {
+void rr_scheduler::update_mode() {
   bool have_reads = false, have_writes = false;
 
   for (unsigned b = 0; b < m_config->nbk; b++) {
@@ -105,7 +105,7 @@ void i3_timer_scheduler::update_mode() {
   dram_scheduler::update_mode();
 }
 
-dram_req_t *i3_timer_scheduler::schedule(unsigned bank, unsigned curr_row) {
+dram_req_t *rr_scheduler::schedule(unsigned bank, unsigned curr_row) {
   dram_req_t *req = dram_scheduler::schedule(bank, curr_row);
 
   if (req && (m_mem_batch_start_time == 0)) {
@@ -115,7 +115,7 @@ dram_req_t *i3_timer_scheduler::schedule(unsigned bank, unsigned curr_row) {
   return req;
 }
 
-dram_req_t *i3_timer_scheduler::schedule_pim() {
+dram_req_t *rr_scheduler::schedule_pim() {
   dram_req_t *req = dram_scheduler::schedule_pim();
 
   if (req) {
@@ -129,7 +129,7 @@ dram_req_t *i3_timer_scheduler::schedule_pim() {
   return req;
 }
 
-void i3_timer_scheduler::finalize_stats()
+void rr_scheduler::finalize_stats()
 {
   if (m_dram->mode == PIM_MODE) {
     unsigned long long batch_exec_time = m_dram->m_dram_cycle - \

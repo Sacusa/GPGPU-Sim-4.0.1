@@ -29,28 +29,13 @@
 
 #include "dram.h"
 #include "dram_sched.h"
-#include "dram_sched_gi.h"
-#include "dram_sched_i1.h"
-#include "dram_sched_i2.h"
-#include "dram_sched_i2a.h"
-#include "dram_sched_i3.h"
-#include "dram_sched_i3_timer.h"
-#include "dram_sched_i4a.h"
-#include "dram_sched_i4a_no_cap.h"
-#include "dram_sched_i4b.h"
-#include "dram_sched_i4b_no_cap.h"
-#include "dram_sched_hill_climbing.h"
-#include "dram_sched_pim_frfcfs.h"
-#include "dram_sched_gi_mem.h"
 #include "dram_sched_bliss.h"
-#include "dram_sched_queue.h"
-#include "dram_sched_queue2.h"
-#include "dram_sched_queue3.h"
-#include "dram_sched_queue4.h"
-#include "dram_sched_pim_frfcfs_util.h"
+#include "dram_sched_gi.h"
+#include "dram_sched_gi_mem.h"
 #include "dram_sched_mem_first.h"
+#include "dram_sched_paws.h"
 #include "dram_sched_pim_first.h"
-#include "dram_sched_dyn_thresh.h"
+#include "dram_sched_rr.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -174,41 +159,14 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_FRFCFS:
       m_scheduler = new dram_scheduler(m_config, this, stats);
       break;
+    case DRAM_MEM_FIRST:
+      m_scheduler = new mem_first_scheduler(m_config, this, stats);
+      break;
+    case DRAM_PIM_FIRST:
+      m_scheduler = new pim_first_scheduler(m_config, this, stats);
+      break;
     case DRAM_GI:
       m_scheduler = new gi_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I1:
-      m_scheduler = new i1_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I2:
-      m_scheduler = new i2_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I2A:
-      m_scheduler = new i2a_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I3:
-      m_scheduler = new i3_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I3_TIMER:
-      m_scheduler = new i3_timer_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I4A:
-      m_scheduler = new i4a_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I4A_NO_CAP:
-      m_scheduler = new i4a_no_cap_scheduler(m_config, this, stats);
-      break;
-    case DRAM_HILL_CLIMBING:
-      m_scheduler = new hill_climbing_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I4B:
-      m_scheduler = new i4b_scheduler(m_config, this, stats);
-      break;
-    case DRAM_I4B_NO_CAP:
-      m_scheduler = new i4b_no_cap_scheduler(m_config, this, stats);
-      break;
-    case DRAM_PIM_FRFCFS:
-      m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
       break;
     case DRAM_GI_MEM:
       m_scheduler = new gi_mem_scheduler(m_config, this, stats);
@@ -216,29 +174,11 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_BLISS:
       m_scheduler = new bliss_scheduler(m_config, this, stats);
       break;
-    case DRAM_QUEUE:
-      m_scheduler = new queue_scheduler(m_config, this, stats);
+    case DRAM_RR:
+      m_scheduler = new rr_scheduler(m_config, this, stats);
       break;
-    case DRAM_QUEUE2:
-      m_scheduler = new queue2_scheduler(m_config, this, stats);
-      break;
-    case DRAM_QUEUE3:
-      m_scheduler = new queue3_scheduler(m_config, this, stats);
-      break;
-    case DRAM_QUEUE4:
-      m_scheduler = new queue4_scheduler(m_config, this, stats);
-      break;
-    case DRAM_PIM_FRFCFS_UTIL:
-      m_scheduler = new pim_frfcfs_util_scheduler(m_config, this, stats);
-      break;
-    case DRAM_MEM_FIRST:
-      m_scheduler = new mem_first_scheduler(m_config, this, stats);
-      break;
-    case DRAM_PIM_FIRST:
-      m_scheduler = new pim_first_scheduler(m_config, this, stats);
-      break;
-    case DRAM_DYN_THRESH:
-      m_scheduler = new dyn_thresh_scheduler(m_config, this, stats);
+    case DRAM_PAWS:
+      m_scheduler = new paws_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
@@ -297,17 +237,6 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   max_pim_mrqs_temp = 0;
   ave_pim_mrqs = 0;
   ave_pim_mrqs_partial = 0;
-
-  // num_phases = 10  ==>  max_phase_length = 5120K ~= 5M
-  int num_phases = 10;
-  for (int i = 0; i < num_phases; i++) {
-    phase_length.push_back(10000 * ((int) pow(2, i)));
-    num_total_phases.push_back(0);
-    num_unstable_phases.push_back(0);
-    phase_requests.push_back(0);
-    stable_phase_requests.push_back(0);
-  }
-  phase_arr_rate_percent_change.resize(num_phases);
 }
 
 bool dram_t::full(bool is_write, bool is_pim) const {
@@ -441,10 +370,6 @@ void dram_t::push(class mem_fetch *data) {
     last_non_pim_req_insert_cycle = m_dram_cycle;
 
     m_num_pending++;
-
-    for (int i = 0; i < phase_requests.size(); i++) {
-      phase_requests[i]++;
-    }
 
 #ifdef DRAM_VERIFY_MEM_PIM_EXCLUSIVITY
     m_mem_rows.insert(mrq->row);
@@ -951,39 +876,6 @@ void dram_t::cycle() {
     DEC2ZERO(bkgrp[j]->RTPLc);
   }
 
-  for (int i = 0; i < phase_length.size(); i++) {
-    if ((m_dram_cycle % phase_length[i]) == 0) {
-      num_total_phases[i]++;
-
-      if (num_total_phases[i] == 1) {
-        stable_phase_requests[i] = phase_requests[i];
-      }
-
-      else {
-        if (stable_phase_requests[i] == 0) {
-          if (phase_requests[i] != 0) {
-            num_unstable_phases[i]++;
-            stable_phase_requests[i] = phase_requests[i];
-          }
-        }
-        else {
-          float arr_rate_change = (float) abs((long long int)
-              (phase_requests[i] - stable_phase_requests[i])) / \
-            stable_phase_requests[i];
-
-          phase_arr_rate_percent_change[i].push_back(arr_rate_change);
-
-          if (arr_rate_change > 0.05) {
-            num_unstable_phases[i]++;
-            stable_phase_requests[i] = phase_requests[i];
-          }
-        }
-      }
-
-      phase_requests[i] = 0;
-    }
-  }
-
 #ifdef DRAM_VISUALIZE
   visualize();
 #endif
@@ -1473,8 +1365,8 @@ void dram_t::print(FILE *simFile) const {
   printf("avg_non_pim_queuing_delay = %lf\n", (double)non_pim_queueing_delay /
       (n_rd + n_wr + n_rd_L2_A + n_wr_WB));
 
-  if (m_config->scheduler_type == DRAM_I3_TIMER) {
-    i3_timer_scheduler *sched = (i3_timer_scheduler*) m_scheduler;
+  if (m_config->scheduler_type == DRAM_RR) {
+    rr_scheduler *sched = (rr_scheduler*) m_scheduler;
 
     sched->finalize_stats();
 
@@ -1505,59 +1397,8 @@ void dram_t::print(FILE *simFile) const {
     printf("\nStDevMemWastedCycles = %u\n", stats[1]);
   }
 
-  if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
-    pim_frfcfs_scheduler *sched = (pim_frfcfs_scheduler*) m_scheduler;
-
-    printf("\nBank stall time for PIM:\n");
-    for (unsigned b = 0; b < m_config->nbk; b++) {
-      printf("Bank_%d_stall_time = %llu\n", b,sched->m_bank_pim_stall_time[b]);
-    }
-
-    printf("\nBank waste time for PIM:\n");
-    for (unsigned b = 0; b < m_config->nbk; b++) {
-      printf("Bank_%d_waste_time = %llu\n", b,sched->m_bank_pim_waste_time[b]);
-    }
-
-    printf("\nMEM2PIM switch readiness latency:\n");
-
-    double sum = 0;
-    double mean = 0;
-    double sq = 0;
-    double stdev = 0;
-    double max = 0;
-    unsigned long long len = sched->m_mem2pim_switch_latency.size();
-
-    if (len > 0) {
-      sum = std::accumulate(sched->m_mem2pim_switch_latency.begin(),
-          sched->m_mem2pim_switch_latency.end(), 0.0);
-      mean = sum / len;
-      sq = std::inner_product(sched->m_mem2pim_switch_latency.begin(),
-          sched->m_mem2pim_switch_latency.end(),
-          sched->m_mem2pim_switch_latency.begin(), 0.0);
-      stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_mem2pim_switch_latency),
-          std::end(sched->m_mem2pim_switch_latency));
-    }
-
-    printf("\nAvgSwitchReadinessLatency = %.6f", mean);
-    printf("\nMaxSwitchReadinessLatency = %.6f", max);
-    printf("\nStDevSwitchReadinessLatency = %.6f", stdev);
-
-    unsigned long long len_non_zeros = len -
-        std::count(sched->m_mem2pim_switch_latency.begin(),
-                sched->m_mem2pim_switch_latency.end(), 0);
-
-    if (len_non_zeros > 0) {
-      mean = sum / len_non_zeros;
-      stdev = std::sqrt(sq / len_non_zeros - mean * mean);
-    }
-
-    printf("\nAvgNonZeroSwitchReadinessLatency = %.6f", mean);
-    printf("\nStDevNonZeroSwitchReadinessLatency = %.6f\n", stdev);
-  }
-
-  if (m_config->scheduler_type == DRAM_PIM_FRFCFS_UTIL) {
-    pim_frfcfs_util_scheduler *sched = (pim_frfcfs_util_scheduler*)m_scheduler;
+  if (m_config->scheduler_type == DRAM_PAWS) {
+    paws_scheduler *sched = (paws_scheduler*)m_scheduler;
 
     printf("\nBank stall time for PIM:\n");
     for (unsigned b = 0; b < m_config->nbk; b++) {
@@ -1677,32 +1518,6 @@ void dram_t::print(FILE *simFile) const {
             (float)ave_mrqs / n_cmd);
     fprintf(simFile, "mrqq_pim: max=%d avg=%g\n", max_pim_mrqs,
             (float)ave_pim_mrqs / n_cmd);
-  }
-
-  printf("\nPhase statistics:\n");
-  for (int i = 0; i < phase_length.size(); i++) {
-    printf("%dK (total/unstable) = %llu / %llu", 10 * ((int) pow(2, i)),
-        num_total_phases[i], num_unstable_phases[i]);
-
-    int size = phase_arr_rate_percent_change[i].size();
-    float min = -1, max = -1, median = -1;
-
-    if (size > 0) {
-      std::vector<float> arr_rate_change(phase_arr_rate_percent_change[i]);
-      std::sort(arr_rate_change.begin(), arr_rate_change.end());
-
-      min = *(arr_rate_change.begin());
-      max = *(arr_rate_change.end() - 1);
-      if (size % 2 == 0) {
-        median = (arr_rate_change[size / 2] + \
-            arr_rate_change[(size / 2) - 1]) / 2;
-      } else {
-        median = arr_rate_change[(size - 1) / 2];
-      }
-    }
-
-    printf("; arr_rate_change (min/median/max) = %f / %f / %f\n", min,
-        median, max);
   }
 }
 

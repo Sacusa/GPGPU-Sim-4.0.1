@@ -34,9 +34,11 @@
 
 unsigned CUstream_st::sm_next_stream_uid = 0;
 
-CUstream_st::CUstream_st() {
+CUstream_st::CUstream_st(unsigned flags, int priority) {
   m_pending = false;
   m_uid = sm_next_stream_uid++;
+  m_flags = flags;
+  m_priority = priority;
   pthread_mutex_init(&m_lock, NULL);
 }
 
@@ -65,10 +67,17 @@ void CUstream_st::synchronize() {
   } while (!done);
 }
 
-void CUstream_st::push(const stream_operation &op) {
+void CUstream_st::push(stream_operation &op) {
   // called by host thread
   pthread_mutex_lock(&m_lock);
+
+  if (op.is_kernel()) {
+    // Reusing flags to indicate the maximum number of cores for each kernel
+    (op.get_kernel())->set_max_bound_cores(m_flags);
+  }
+
   m_operations.push_back(op);
+
   pthread_mutex_unlock(&m_lock);
 }
 
@@ -231,7 +240,8 @@ void stream_operation::print(FILE *fp) const {
   }
 }
 
-stream_manager::stream_manager(gpgpu_sim *gpu, bool cuda_launch_blocking) {
+stream_manager::stream_manager(gpgpu_sim *gpu, bool cuda_launch_blocking) :
+  m_stream_zero((gpu->get_config()).get_max_stream_zero_cores(), 0) {
   m_gpu = gpu;
   m_cuda_launch_blocking = cuda_launch_blocking;
   pthread_mutex_init(&m_lock, NULL);
@@ -362,8 +372,10 @@ stream_operation stream_manager::front() {
   return result;
 }
 
-void stream_manager::add_stream(struct CUstream_st *stream, int priority) {
+void stream_manager::add_stream(struct CUstream_st *stream) {
   // called by host thread
+  int priority = stream->get_priority();
+
   pthread_mutex_lock(&m_lock);
 
   m_priorities.insert(priority);

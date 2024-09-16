@@ -224,20 +224,26 @@ class stream_operation {
 };
 struct CUstream_st {
  public:
-  CUstream_st();
+  CUstream_st(unsigned flags, int priority);
   bool empty();
   bool busy();
   void synchronize();
-  void push(const stream_operation &op);
+  void push(stream_operation &op);
   void record_next_done();
   stream_operation next();
   void cancel_front();  // front operation fails, cancle the pending status
   stream_operation &front() { return m_operations.front(); }
   void print(FILE *fp);
   unsigned get_uid() const { return m_uid; }
+  unsigned get_flags() { return m_flags; }
+  int get_priority() { return m_priority; }
 
  private:
   unsigned m_uid;
+
+  int m_priority;
+  unsigned m_flags;
+
   static unsigned sm_next_stream_uid;
 
   std::list<stream_operation> m_operations;
@@ -253,7 +259,7 @@ class stream_manager {
   bool register_finished_kernel(unsigned grid_uid);
   bool check_finished_kernel();
   stream_operation front();
-  void add_stream(CUstream_st *stream, int priority);
+  void add_stream(CUstream_st *stream);
   void destroy_stream(CUstream_st *stream);
   bool concurrent_streams_empty();
   bool empty_protected();

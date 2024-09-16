@@ -2718,6 +2718,11 @@ void shader_core_ctx::register_cta_thread_exit(unsigned cta_num,
       if (kernel != m_kernel) {
         assert(m_kernel == NULL || !m_gpu->kernel_more_cta_left(m_kernel));
       }
+
+      if (m_kernel != NULL) {
+        m_kernel->dec_bound_cores();
+      }
+
       m_kernel = NULL;
     }
 
@@ -4303,7 +4308,10 @@ unsigned simt_core_cluster::issue_block2core() {
         // wait till current kernel finishes
         if (m_core[core]->get_not_completed() == 0) {
           kernel_info_t *k = m_gpu->select_kernel();
-          if (k) m_core[core]->set_kernel(k);
+          if (k) {
+            m_core[core]->set_kernel(k);
+            k->inc_bound_cores();
+          }
           kernel = k;
         }
       }

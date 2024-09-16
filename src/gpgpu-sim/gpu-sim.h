@@ -417,6 +417,8 @@ class gpgpu_sim_config : public power_config,
 
   unsigned get_shader_to_mem_vcs() const { return shader_to_mem_vcs; }
 
+  unsigned get_max_stream_zero_cores() const { return max_stream_zero_cores; }
+
  private:
   void init_clock_domains(void);
 
@@ -465,6 +467,7 @@ class gpgpu_sim_config : public power_config,
   size_t heap_size_limit;
   size_t runtime_sync_depth_limit;
   size_t runtime_pending_launch_count_limit;
+  unsigned max_stream_zero_cores;
 
   // gpu compute capability options
   unsigned int gpgpu_compute_capability_major;

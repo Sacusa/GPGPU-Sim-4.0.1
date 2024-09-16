@@ -754,7 +754,9 @@ kernel_info_t::kernel_info_t(dim3 gridDim, dim3 blockDim,
   m_next_cta.y = 0;
   m_next_cta.z = 0;
   m_next_tid = m_next_cta;
-  m_num_cores_running = 0;
+  m_num_blocks_running = 0;
+  m_num_bound_cores = 0;
+  m_max_bound_cores = 0;
   m_uid = (entry->gpgpu_ctx->kernel_info_m_next_uid)++;
   m_param_mem = new memory_space_impl<8192>("param", 64 * 1024);
 
@@ -785,7 +787,9 @@ kernel_info_t::kernel_info_t(
   m_next_cta.y = 0;
   m_next_cta.z = 0;
   m_next_tid = m_next_cta;
-  m_num_cores_running = 0;
+  m_num_blocks_running = 0;
+  m_num_bound_cores = 0;
+  m_max_bound_cores = 0;
   m_uid = (entry->gpgpu_ctx->kernel_info_m_next_uid)++;
   m_param_mem = new memory_space_impl<8192>("param", 64 * 1024);
 
@@ -856,9 +860,9 @@ void kernel_info_t::notify_parent_finished() {
 
 CUstream_st *kernel_info_t::create_stream_cta(dim3 ctaid) {
   assert(get_default_stream_cta(ctaid));
-  CUstream_st *stream = new CUstream_st();
+  CUstream_st *stream = new CUstream_st(0, 0);
   m_kernel_entry->gpgpu_ctx->the_gpgpusim->g_stream_manager->add_stream(
-      stream, 0);
+          stream);
   assert(m_cta_streams.find(ctaid) != m_cta_streams.end());
   assert(m_cta_streams[ctaid].size() >= 1);  // must have default stream
   m_cta_streams[ctaid].push_back(stream);
@@ -873,9 +877,9 @@ CUstream_st *kernel_info_t::get_default_stream_cta(dim3 ctaid) {
     return *(m_cta_streams[ctaid].begin());
   } else {
     m_cta_streams[ctaid] = std::list<CUstream_st *>();
-    CUstream_st *stream = new CUstream_st();
+    CUstream_st *stream = new CUstream_st(0, 0);
     m_kernel_entry->gpgpu_ctx->the_gpgpusim->g_stream_manager->add_stream(
-        stream, 0);
+            stream);
     m_cta_streams[ctaid].push_back(stream);
     return stream;
   }

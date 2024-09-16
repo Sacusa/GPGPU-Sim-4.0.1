@@ -692,6 +692,8 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
 
   option_parser_register(opp, "-gpgpu_shader_to_mem_vcs", OPT_UINT32,
                          &shader_to_mem_vcs, "shader->mem VCs", "1");
+  option_parser_register(opp, "-gpgpu_max_stream_zero_cores", OPT_UINT32,
+                         &max_stream_zero_cores, "max stream zero cores", "0");
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -778,7 +780,8 @@ void gpgpu_sim::decrement_kernel_latency() {
 kernel_info_t *gpgpu_sim::select_kernel() {
   if (m_running_kernels[m_last_issued_kernel] &&
       !m_running_kernels[m_last_issued_kernel]->no_more_ctas_to_run() &&
-      !m_running_kernels[m_last_issued_kernel]->m_kernel_TB_latency) {
+      !m_running_kernels[m_last_issued_kernel]->m_kernel_TB_latency &&
+      m_running_kernels[m_last_issued_kernel]->can_issue_to_more_cores()) {
     unsigned launch_uid = m_running_kernels[m_last_issued_kernel]->get_uid();
     if (std::find(m_executed_kernel_uids.begin(), m_executed_kernel_uids.end(),
                   launch_uid) == m_executed_kernel_uids.end()) {
@@ -795,7 +798,8 @@ kernel_info_t *gpgpu_sim::select_kernel() {
     unsigned idx =
         (n + m_last_issued_kernel + 1) % m_config.max_concurrent_kernel;
     if (kernel_more_cta_left(m_running_kernels[idx]) &&
-        !m_running_kernels[idx]->m_kernel_TB_latency) {
+        !m_running_kernels[idx]->m_kernel_TB_latency &&
+        m_running_kernels[idx]->can_issue_to_more_cores()) {
       m_last_issued_kernel = idx;
       m_running_kernels[idx]->start_cycle = gpu_sim_cycle + gpu_tot_sim_cycle;
       // record this kernel for stat print if it is the first time this kernel

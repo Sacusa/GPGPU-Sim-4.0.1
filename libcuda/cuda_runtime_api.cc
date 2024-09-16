@@ -2001,7 +2001,8 @@ __host__ cudaError_t CUDARTAPI cudaLaunchKernelInternal(
 }
 
 __host__ cudaError_t CUDARTAPI cudaStreamCreateInternal(
-    cudaStream_t *stream, int priority, gpgpu_context *gpgpu_ctx = NULL) {
+    cudaStream_t *stream, unsigned int flags, int priority,
+    gpgpu_context *gpgpu_ctx = NULL) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -2013,8 +2014,8 @@ __host__ cudaError_t CUDARTAPI cudaStreamCreateInternal(
   }
   printf("GPGPU-Sim PTX: cudaStreamCreate\n");
 #if (CUDART_VERSION >= 3000)
-  *stream = new struct CUstream_st();
-  ctx->the_gpgpusim->g_stream_manager->add_stream(*stream, priority);
+  *stream = new struct CUstream_st(flags, priority);
+  ctx->the_gpgpusim->g_stream_manager->add_stream(*stream);
 #else
   *stream = 0;
   printf(
@@ -2642,21 +2643,6 @@ __host__ cudaError_t CUDARTAPI cudaDeviceGetLimit(size_t *pValue,
   return cudaDeviceGetLimitInternal(pValue, limit);
 }
 
-// Reusing this function to wait for the stream operations to launch.
-//
-// I use this to ensure PIM kernels launch before non-PIM kernels do.
-__host__ cudaError_t CUDARTAPI cudaStreamGetPriority(cudaStream_t hStream,
-                                                     int *priority) {
-  if (g_debug_execution >= 3) {
-    announce_call(__my_func__);
-  }
-  printf("GPGPU-Sim API: Waiting for stream %d to launch an operation\n",
-          hStream->get_uid());
-  fflush(stdout);
-  while (!hStream->busy());
-  return g_last_cudaError = cudaSuccess;
-}
-
 __host__ cudaError_t CUDARTAPI cudaDeviceGetPCIBusId(char *pciBusId, int len,
                                                      int device) {
   if (g_debug_execution >= 3) {
@@ -2816,16 +2802,15 @@ __host__ cudaError_t CUDARTAPI cudaLaunchKernel(const char *hostFun,
  *******************************************************************************/
 
 __host__ cudaError_t CUDARTAPI cudaStreamCreate(cudaStream_t *stream) {
-  return cudaStreamCreateInternal(stream, 0);
+  return cudaStreamCreateInternal(stream, 0, 0);
 }
 
-// TODO: introduce priorities
 __host__ cudaError_t CUDARTAPI cudaStreamCreateWithPriority(
     cudaStream_t *stream, unsigned int flags, int priority) {
   if (g_debug_execution >= 3) {
     announce_call(__my_func__);
   }
-  return cudaStreamCreateInternal(stream, priority);
+  return cudaStreamCreateInternal(stream, flags, priority);
 }
 
 __host__ cudaError_t CUDARTAPI
@@ -2841,7 +2826,7 @@ cudaStreamCreateWithFlags(cudaStream_t *stream, unsigned int flags) {
   if (g_debug_execution >= 3) {
     announce_call(__my_func__);
   }
-  return cudaStreamCreate(stream);
+  return cudaStreamCreateInternal(stream, flags, 0);
 }
 
 __host__ cudaError_t CUDARTAPI cudaStreamDestroy(cudaStream_t stream) {
@@ -2867,6 +2852,39 @@ __host__ cudaError_t CUDARTAPI cudaStreamQuery(cudaStream_t stream) {
   return g_last_cudaError = cudaSuccess;  // it is always success because all
                                           // cuda calls are synchronous
 #endif
+}
+
+__host__ cudaError_t CUDARTAPI cudaStreamGetPriority(cudaStream_t hStream,
+                                                     int *priority) {
+  if (g_debug_execution >= 3) {
+    announce_call(__my_func__);
+  }
+  *priority = hStream->get_priority();
+  return g_last_cudaError = cudaSuccess;
+}
+
+__host__ cudaError_t CUDARTAPI cudaStreamGetFlags(cudaStream_t hStream,
+                                                  unsigned int *flags) {
+  if (g_debug_execution >= 3) {
+    announce_call(__my_func__);
+  }
+  *flags = hStream->get_flags();
+  return g_last_cudaError = cudaSuccess;
+}
+
+// Reusing this function to wait for the stream operations to launch.
+//
+// I use this to ensure PIM kernels launch before non-PIM kernels do.
+__host__ cudaError_t CUDARTAPI cudaStreamIsCapturing(cudaStream_t stream,
+        cudaStreamCaptureStatus **pCaptureStatus) {
+  if (g_debug_execution >= 3) {
+    announce_call(__my_func__);
+  }
+  printf("GPGPU-Sim API: Waiting for stream %d to launch an operation\n",
+          stream->get_uid());
+  fflush(stdout);
+  while (!stream->busy());
+  return g_last_cudaError = cudaSuccess;
 }
 
 /*******************************************************************************

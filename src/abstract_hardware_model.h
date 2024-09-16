@@ -198,7 +198,7 @@ class kernel_info_t {
   //      m_valid=false;
   //      m_kernel_entry=NULL;
   //      m_uid=0;
-  //      m_num_cores_running=0;
+  //      m_num_blocks_running=0;
   //      m_param_mem=NULL;
   //   }
   kernel_info_t(dim3 gridDim, dim3 blockDim, class function_info *entry);
@@ -208,12 +208,26 @@ class kernel_info_t {
       std::map<std::string, const struct textureInfo *> nameToTextureInfo);
   ~kernel_info_t();
 
-  void inc_running() { m_num_cores_running++; }
+  void inc_running() { m_num_blocks_running++; }
   void dec_running() {
-    assert(m_num_cores_running > 0);
-    m_num_cores_running--;
+    assert(m_num_blocks_running > 0);
+    m_num_blocks_running--;
   }
-  bool running() const { return m_num_cores_running > 0; }
+
+  void inc_bound_cores() { m_num_bound_cores++; }
+  void dec_bound_cores() {
+      assert(m_num_bound_cores > 0);
+      m_num_bound_cores--;
+  }
+  unsigned __attribute__((optimize("O0"))) set_max_bound_cores(unsigned cores){
+      // For some reason, optimizing this function causes a double-free error
+      m_max_bound_cores = cores;
+  }
+  bool can_issue_to_more_cores() {
+      return ((m_max_bound_cores == 0) || \
+              (m_num_bound_cores < m_max_bound_cores));
+  }
+  bool running() const { return m_num_blocks_running > 0; }
   bool done() const { return no_more_ctas_to_run() && !running(); }
   class function_info *entry() {
     return m_kernel_entry;
@@ -303,7 +317,11 @@ class kernel_info_t {
   dim3 m_next_cta;
   dim3 m_next_tid;
 
-  unsigned m_num_cores_running;
+  unsigned m_num_blocks_running;
+
+  // Note: this limit does not work if concurrent kernel execution is enabled
+  unsigned m_num_bound_cores;
+  unsigned m_max_bound_cores;
 
   std::list<class ptx_thread_info *> m_active_threads;
   class memory_space *m_param_mem;

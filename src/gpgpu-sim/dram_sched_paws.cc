@@ -124,10 +124,17 @@ void paws_scheduler::update_mode() {
         std::vector<bool> has_mem_requests;
 
         for (unsigned b = 0; b < m_config->nbk; b++) {
-          bool can_bank_switch = !is_next_req_hit(b, m_dram->bk[b]->curr_row,
-                                                  m_dram->mode) && \
-                                 !m_queue[b].empty() && \
-                                 m_queue[b].back()->data->is_pim();
+          bool can_bank_switch = false;
+
+          // This IF statement ensures that the row buffer miss check is
+          // performed only after at least one MEM request has been issued at
+          // each bank
+          if (!m_bank_pending_mem_requests[b] || \
+              (m_dram->bk[b]->mrq != NULL)) {
+            can_bank_switch = !is_next_req_hit(b, m_dram->bk[b]->curr_row,
+                                               m_dram->mode) && \
+                              m_queue[b].back()->data->is_pim();
+          }
 
           m_bank_switch_to_pim[b] = m_bank_switch_to_pim[b] || can_bank_switch;
           switch_to_pim = switch_to_pim && m_bank_switch_to_pim[b];

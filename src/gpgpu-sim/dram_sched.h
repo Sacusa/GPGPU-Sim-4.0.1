@@ -54,6 +54,9 @@ class dram_scheduler {
   unsigned num_write_pending() const { return m_num_write_pending; }
   unsigned num_pim_pending() const { return m_num_pim_pending; }
 
+ private:
+  unsigned m_num_bypasses;  // Used to enforce CAP
+
  protected:
   const memory_config *m_config;
   dram_t *m_dram;

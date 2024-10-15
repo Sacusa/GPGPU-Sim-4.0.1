@@ -71,6 +71,8 @@ dram_scheduler::dram_scheduler(const memory_config *config, dram_t *dm,
 
   m_pim_queue = new std::list<dram_req_t *>;
   m_pim_queue->clear();
+
+  m_num_bypasses = 0;
 }
 
 void dram_scheduler::add_req(dram_req_t *req) {
@@ -168,9 +170,28 @@ void dram_scheduler::update_mode() {
   bool have_pim = m_num_pim_pending > 0;
 
   if (m_dram->mode == PIM_MODE) {
-    if (have_mem && !have_pim) {
+    bool cap_exceeded = false;
+
+    if ((m_config->frfcfs_cap > 0) && have_mem && have_pim) {
+      for (unsigned int b = 0; b < m_config->nbk; b++) {
+        if (m_queue[b].size() == 0) { continue; }
+
+        if (m_queue[b].back()->timestamp < m_pim_queue->front()->timestamp){
+          // There is *at least* one MEM request older than the oldest PIM
+          // request; PIM will be bypassing this MEM request so increment the
+          // counter
+          m_num_bypasses++;
+          break;
+        }
+      }
+
+      cap_exceeded = m_num_bypasses > m_config->frfcfs_cap;
+    }
+
+    if ((have_mem && !have_pim) || cap_exceeded) {
       m_dram->mode = READ_MODE;
       m_dram->pim2nonpimswitches++;
+      m_num_bypasses = 0;
 
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM %d: Switching to non-PIM mode\n", m_dram->id);
@@ -179,9 +200,32 @@ void dram_scheduler::update_mode() {
   }
 
   else {
-    if (!have_mem && have_pim) {
+    bool cap_exceeded = false;
+
+    if ((m_config->frfcfs_cap > 0) && have_mem && have_pim) {
+      bool is_pim_oldest = true;
+
+      for (unsigned int b = 0; b < m_config->nbk; b++) {
+        if (m_queue[b].size() == 0) { continue; }
+
+        if (m_queue[b].back()->timestamp < m_pim_queue->front()->timestamp){
+          // There is *at least* one MEM request older than the oldest
+          // PIM request; this means that we do not need to increment the
+          // counter
+          is_pim_oldest = false;
+          break;
+        }
+      }
+
+      if (is_pim_oldest) { m_num_bypasses++; }
+
+      cap_exceeded = m_num_bypasses > m_config->frfcfs_cap;
+    }
+
+    if ((!have_mem && have_pim) || cap_exceeded) {
       m_dram->mode = PIM_MODE;
       m_dram->nonpim2pimswitches++;
+      m_num_bypasses = 0;
 
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM %d: Switching to PIM mode\n", m_dram->id);

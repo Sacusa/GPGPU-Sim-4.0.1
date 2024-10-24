@@ -75,7 +75,8 @@ enum dram_ctrl_t {
     DRAM_GI_MEM = 5,
     DRAM_BLISS = 6,
     DRAM_RR = 7,
-    DRAM_PAWS = 8,
+    DRAM_FR_RR_FCFS = 8,
+    DRAM_PAWS = 9,
     NUM_DRAM_POLICIES
 };
 

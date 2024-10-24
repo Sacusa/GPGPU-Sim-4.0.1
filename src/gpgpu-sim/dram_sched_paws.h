@@ -9,14 +9,14 @@
 #include "gpu-sim.h"
 #include "shader.h"
 
-enum switch_reason {
-    OUT_OF_REQUESTS = 0,
-    CAP_EXCEEDED,
-    OLDEST_FIRST,
-    NUM_SWITCH_REASONS
+enum paws_switch_reason {
+    PAWS_OUT_OF_REQUESTS = 0,
+    PAWS_CAP_EXCEEDED,
+    PAWS_OLDEST_FIRST,
+    PAWS_NUM_SWITCH_REASONS
 };
 
-const std::string switch_reason_str[] = {"OutOfRequests", "CapExceeded",
+const std::string paws_switch_reason_str[] = {"OutOfRequests", "CapExceeded",
     "OldestFirst"};
 
 class paws_scheduler : public dram_scheduler {
@@ -36,8 +36,8 @@ class paws_scheduler : public dram_scheduler {
   std::vector<unsigned long long> m_mem2pim_switch_latency;
 
   std::vector<unsigned> m_mem_cap;
-  std::vector<switch_reason> m_mem2pim_switch_reason;
-  std::vector<switch_reason> m_pim2mem_switch_reason;
+  std::vector<paws_switch_reason> m_mem2pim_switch_reason;
+  std::vector<paws_switch_reason> m_pim2mem_switch_reason;
   std::vector<unsigned> m_max_mem_requests_issued_at_any_bank;
   std::vector<unsigned> m_pim_requests_issued;
 

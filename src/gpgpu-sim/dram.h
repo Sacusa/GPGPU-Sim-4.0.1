@@ -306,6 +306,7 @@ class dram_t {
   friend class bliss_scheduler;
   friend class dram_scheduler;
   friend class frfcfs_scheduler;
+  friend class fr_rr_fcfs_scheduler;
   friend class gi_scheduler;
   friend class gi_mem_scheduler;
   friend class mem_first_scheduler;

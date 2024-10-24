@@ -30,6 +30,7 @@
 #include "dram.h"
 #include "dram_sched.h"
 #include "dram_sched_bliss.h"
+#include "dram_sched_fr_rr_fcfs.h"
 #include "dram_sched_gi.h"
 #include "dram_sched_gi_mem.h"
 #include "dram_sched_mem_first.h"
@@ -153,17 +154,17 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
           : m_config->gpgpu_dram_return_queue_size);
 
   switch (m_config->scheduler_type) {
+    case DRAM_BLISS:
+      m_scheduler = new bliss_scheduler(m_config, this, stats);
+      break;
     case DRAM_FIFO:
       m_scheduler = NULL;
       break;
     case DRAM_FRFCFS:
       m_scheduler = new dram_scheduler(m_config, this, stats);
       break;
-    case DRAM_MEM_FIRST:
-      m_scheduler = new mem_first_scheduler(m_config, this, stats);
-      break;
-    case DRAM_PIM_FIRST:
-      m_scheduler = new pim_first_scheduler(m_config, this, stats);
+    case DRAM_FR_RR_FCFS:
+      m_scheduler = new fr_rr_fcfs_scheduler(m_config, this, stats);
       break;
     case DRAM_GI:
       m_scheduler = new gi_scheduler(m_config, this, stats);
@@ -171,14 +172,17 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_GI_MEM:
       m_scheduler = new gi_mem_scheduler(m_config, this, stats);
       break;
-    case DRAM_BLISS:
-      m_scheduler = new bliss_scheduler(m_config, this, stats);
-      break;
-    case DRAM_RR:
-      m_scheduler = new rr_scheduler(m_config, this, stats);
+    case DRAM_MEM_FIRST:
+      m_scheduler = new mem_first_scheduler(m_config, this, stats);
       break;
     case DRAM_PAWS:
       m_scheduler = new paws_scheduler(m_config, this, stats);
+      break;
+    case DRAM_PIM_FIRST:
+      m_scheduler = new pim_first_scheduler(m_config, this, stats);
+      break;
+    case DRAM_RR:
+      m_scheduler = new rr_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
@@ -1468,17 +1472,48 @@ void dram_t::print(FILE *simFile) const {
     printf("\nStDevPimRequestsIssued = %u", stats[1]);
 
     printf("\nMEM2PIM Switch Breakdown:\n");
-    for (int i = 0; i < NUM_SWITCH_REASONS; i++) {
+    for (int i = 0; i < PAWS_NUM_SWITCH_REASONS; i++) {
       unsigned count = std::count(sched->m_mem2pim_switch_reason.begin(),
           sched->m_mem2pim_switch_reason.end(), i);
-      printf("  %s: %u\n", switch_reason_str[i].c_str(), count);
+      printf("  %s: %u\n", paws_switch_reason_str[i].c_str(), count);
     }
 
     printf("\nPIM2MEM Switch Breakdown:\n");
-    for (int i = 0; i < NUM_SWITCH_REASONS; i++) {
+    for (int i = 0; i < PAWS_NUM_SWITCH_REASONS; i++) {
       unsigned count = std::count(sched->m_pim2mem_switch_reason.begin(),
           sched->m_pim2mem_switch_reason.end(), i);
-      printf("  %s: %u\n", switch_reason_str[i].c_str(), count);
+      printf("  %s: %u\n", paws_switch_reason_str[i].c_str(), count);
+    }
+  }
+
+  if (m_config->scheduler_type == DRAM_FR_RR_FCFS) {
+    fr_rr_fcfs_scheduler *sched = (fr_rr_fcfs_scheduler*)m_scheduler;
+
+    std::vector<unsigned> stats = get_stats<unsigned>(
+        &(sched->m_max_mem_requests_issued_at_any_bank));
+
+    printf("\nAvgMemRequestsIssuedPerBank = %u", stats[0]);
+    printf("\nMaxMemRequestsIssuedPerBank = %u", stats[2]);
+    printf("\nStDevMemRequestsIssuedPerBank = %u", stats[1]);
+
+    stats = get_stats<unsigned>(&(sched->m_pim_requests_issued));
+
+    printf("\nAvgPimRequestsIssued = %u", stats[0]);
+    printf("\nMaxPimRequestsIssued = %u", stats[2]);
+    printf("\nStDevPimRequestsIssued = %u", stats[1]);
+
+    printf("\nMEM2PIM Switch Breakdown:\n");
+    for (int i = 0; i < FR_RR_FCFS_NUM_SWITCH_REASONS; i++) {
+      unsigned count = std::count(sched->m_mem2pim_switch_reason.begin(),
+          sched->m_mem2pim_switch_reason.end(), i);
+      printf("  %s: %u\n", fr_rr_fcfs_switch_reason_str[i].c_str(), count);
+    }
+
+    printf("\nPIM2MEM Switch Breakdown:\n");
+    for (int i = 0; i < FR_RR_FCFS_NUM_SWITCH_REASONS; i++) {
+      unsigned count = std::count(sched->m_pim2mem_switch_reason.begin(),
+          sched->m_pim2mem_switch_reason.end(), i);
+      printf("  %s: %u\n", fr_rr_fcfs_switch_reason_str[i].c_str(), count);
     }
   }
 

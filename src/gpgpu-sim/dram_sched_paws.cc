@@ -68,22 +68,22 @@ void paws_scheduler::update_mode() {
     if (threshold_exceeded && (m_num_pending > 0)) {
       // 1) Executed PIM requests have crossed a threshold, or
       m_dram->mode = READ_MODE;
-      m_pim2mem_switch_reason.push_back(CAP_EXCEEDED);
+      m_pim2mem_switch_reason.push_back(PAWS_CAP_EXCEEDED);
     } else {
       if (m_num_pim_pending == 0) {
         // 2) There are no more PIM requests and there are MEM requests, or
         if (m_num_pending > 0) {
           m_dram->mode = READ_MODE;
-          m_pim2mem_switch_reason.push_back(OUT_OF_REQUESTS);
+          m_pim2mem_switch_reason.push_back(PAWS_OUT_OF_REQUESTS);
         }
       } else {
         dram_req_t *req = *(m_pim_queue_it[0].back());
-        if (req->row != m_last_pim_row) {
+        if ((m_last_pim_row != 0) && (req->row != m_last_pim_row)) {
           for (unsigned b = 0; b < m_config->nbk; b++) {
             if (!m_queue[b].empty() && !m_queue[b].back()->data->is_pim()) {
               // 3) PIM has row buffer miss and the oldest request is MEM
               m_dram->mode = READ_MODE;
-              m_pim2mem_switch_reason.push_back(OLDEST_FIRST);
+              m_pim2mem_switch_reason.push_back(PAWS_OLDEST_FIRST);
               break;
             }
           }
@@ -108,13 +108,13 @@ void paws_scheduler::update_mode() {
     if (threshold_exceeded && (m_num_pim_pending > 0)) {
       // 1) Executed MEM requests have crossed a threshold, or
       m_dram->mode = PIM_MODE;
-      m_mem2pim_switch_reason.push_back(CAP_EXCEEDED);
+      m_mem2pim_switch_reason.push_back(PAWS_CAP_EXCEEDED);
     } else {
       if (m_num_pending == 0) {
         // 2) There are no more MEM requests and there are PIM requests, or
         if (m_num_pim_pending > 0) {
           m_dram->mode = PIM_MODE;
-          m_mem2pim_switch_reason.push_back(OUT_OF_REQUESTS);
+          m_mem2pim_switch_reason.push_back(PAWS_OUT_OF_REQUESTS);
         }
       } else {
         // 3) Every bank has a row buffer miss and PIM is the oldest request
@@ -145,7 +145,7 @@ void paws_scheduler::update_mode() {
 
         if (switch_to_pim) {
             m_dram->mode = PIM_MODE;
-            m_mem2pim_switch_reason.push_back(OLDEST_FIRST);
+            m_mem2pim_switch_reason.push_back(PAWS_OLDEST_FIRST);
         }
 
         else if (at_least_one_bank_can_switch) {

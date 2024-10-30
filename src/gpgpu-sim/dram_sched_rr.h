@@ -21,21 +21,15 @@ class rr_scheduler : public dram_scheduler {
   std::vector<unsigned long long> m_pim_batch_exec_time;
   std::vector<unsigned long long> m_mem_batch_exec_time;
   std::vector<unsigned long long> m_mem_wasted_cycles;
-  unsigned m_finished_batches;
-  unsigned prev_pim_num;
 
  private:
   unsigned long long m_non_pim_to_pim_switch_cycle;
 
-  unsigned m_last_pim_row;
-
+  unsigned long long m_num_pim_executed;
   unsigned long long m_pim_batch_start_time;
   unsigned long long m_pim_batch_dur;
 
   unsigned long long m_mem_batch_start_time;
-
-  //unsigned m_finished_batches;
-  //unsigned prev_pim_num = 0;
 };
 
 #endif

@@ -513,9 +513,6 @@ memory_sub_partition::memory_sub_partition(unsigned sub_partition_id,
   m_prev_icnt_L2_vc = 0;
   m_prev_L2_dram_vc = 0;
 
-  m_rop.resize(shader_to_mem_vcs);
-  m_prev_rop_vc = 0;
-
   wb_addr = -1;
 }
 
@@ -669,21 +666,14 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
   }
 
   // ROP delay queue
-  for (unsigned vc_iter = 0; vc_iter < shader_to_mem_vcs; vc_iter++) {
-    unsigned vc = (m_prev_rop_vc + vc_iter + 1) % shader_to_mem_vcs;
+  if (!m_rop.empty() && (cycle >= m_rop.front().ready_cycle)) {
+    mem_fetch *mf = m_rop.front().req;
 
-    if (!m_rop[vc].empty() && (cycle >= m_rop[vc].front().ready_cycle)) {
-      mem_fetch *mf = m_rop[vc].front().req;
-
-      if (!m_icnt_L2_queue[vc]->full()) {
-        m_rop[vc].pop();
-        m_icnt_L2_queue[vc]->push(mf);
-        mf->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
-                       m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-
-        m_prev_rop_vc = vc;
-        break;
-      }
+    if (!m_icnt_L2_queue[MEM_VC]->full()) {
+      m_rop.pop();
+      m_icnt_L2_queue[MEM_VC]->push(mf);
+      mf->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
+                     m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
     }
   }
 }
@@ -893,7 +883,7 @@ void memory_sub_partition::push(mem_fetch *m_req, unsigned vc,
     for (unsigned i = 0; i < reqs.size(); ++i) {
       mem_fetch *req = reqs[i];
       m_request_tracker.insert(req);
-      if (req->istexture()) {
+      if (req->istexture() || req->is_pim()) {
         m_icnt_L2_queue[vc]->push(req);
         req->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
                         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
@@ -902,13 +892,7 @@ void memory_sub_partition::push(mem_fetch *m_req, unsigned vc,
         r.req = req;
         r.ready_cycle = cycle + m_config->rop_latency;
 
-        unsigned vc = 0;
-        if (shader_to_mem_vcs > 1) {
-          if (req->is_pim()) { vc = PIM_VC; }
-          else               { vc = MEM_VC; }
-        }
-
-        m_rop[vc].push(r);
+        m_rop.push(r);
         req->set_status(IN_PARTITION_ROP_DELAY,
                         m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
       }

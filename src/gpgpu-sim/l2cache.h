@@ -217,8 +217,7 @@ class memory_sub_partition {
     unsigned long long ready_cycle;
     class mem_fetch *req;
   };
-  std::vector<std::queue<rop_delay_t>> m_rop;
-  unsigned m_prev_rop_vc;
+  std::queue<rop_delay_t> m_rop;
 
   // these are various FIFOs between units within a memory partition
   std::vector<fifo_pipeline<mem_fetch> *> m_icnt_L2_queue;

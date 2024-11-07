@@ -30,35 +30,37 @@ void rr_scheduler::update_mode() {
   bool have_pim = !m_pim_queue->empty();
 
   if (m_dram->mode == PIM_MODE) {
-    if ((m_num_pim_executed >= m_config->min_pim_batches) || !have_pim) {
-      if (m_num_pim_executed <= m_config->min_pim_batches) {
-        m_pim_batch_dur = m_dram->m_dram_cycle - m_pim_batch_start_time;
-      }
+    if (m_num_pim_executed <= m_config->min_pim_batches) {
+      m_pim_batch_dur = m_dram->m_dram_cycle - m_pim_batch_start_time;
+    }
 
-      if (have_mem) {
-        unsigned long long tot_pim_exec_time = m_dram->m_dram_cycle - \
-                                               m_pim_batch_start_time;
+    if (((m_num_pim_executed >= m_config->min_pim_batches) || !have_pim) && \
+        have_mem) {
+      unsigned long long tot_pim_exec_time = m_dram->m_dram_cycle - \
+                                             m_pim_batch_start_time;
 
-        m_non_pim_to_pim_switch_cycle = m_dram->m_dram_cycle + \
-            (m_config->max_pim_slowdown * m_pim_batch_dur);
+      m_non_pim_to_pim_switch_cycle = m_dram->m_dram_cycle + \
+          (m_config->max_pim_slowdown * m_pim_batch_dur);
 
-        m_pim_batch_start_time = 0;
-        m_pim_batch_dur = 0;
-        m_pim_batch_exec_time.push_back(tot_pim_exec_time);
+      m_num_pim_executed = 0;
+      m_pim_batch_start_time = 0;
+      m_pim_batch_dur = 0;
+      m_pim_batch_exec_time.push_back(tot_pim_exec_time);
 
 #ifdef DRAM_SCHED_VERIFY
-        if (have_pim) {
-          printf("DRAM (%d): Batch over; hit cap\n", m_dram->id);
-        } else {
-          printf("DRAM (%d): Batch over; no more requests\n", m_dram->id);
-        }
-        printf("           Batch execution time = %lld\n", tot_pim_exec_time);
-        printf("           Batch size = %d\n", m_num_pim_executed);
+      printf("DRAM (%d): Switching to MEM mode; ", m_dram->id);
+      if (have_pim) {
+        printf("hit cap\n");
+      } else {
+        printf("no more requests\n");
+      }
+      printf("           Total execution time = %lld\n", tot_pim_exec_time)
+      printf("           Batch execution time = %lld\n", m_pim_batch_dur);
+      printf("           Requests executed = %d\n", m_num_pim_executed);
 #endif
 
-        m_dram->mode = READ_MODE;
-        m_dram->pim2nonpimswitches++;
-      }
+      m_dram->mode = READ_MODE;
+      m_dram->pim2nonpimswitches++;
     }
   }
 
@@ -79,6 +81,8 @@ void rr_scheduler::update_mode() {
 
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM (%d): Switching to PIM mode\n", m_dram->id);
+      printf("           Total execution time = %lld\n",
+          m_mem_batch_exec_time.back());
 #endif
     }
   }

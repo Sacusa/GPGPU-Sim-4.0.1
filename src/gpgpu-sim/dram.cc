@@ -35,8 +35,10 @@
 #include "dram_sched_gi_mem.h"
 #include "dram_sched_mem_first.h"
 #include "dram_sched_paws.h"
+#include "dram_sched_paws_new.h"
 #include "dram_sched_pim_first.h"
-#include "dram_sched_rr.h"
+#include "dram_sched_rr_batch_cap.h"
+#include "dram_sched_rr_req_cap.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -178,11 +180,17 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_PAWS:
       m_scheduler = new paws_scheduler(m_config, this, stats);
       break;
+    case DRAM_PAWS_NEW:
+      m_scheduler = new paws_new_scheduler(m_config, this, stats);
+      break;
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
       break;
-    case DRAM_RR:
-      m_scheduler = new rr_scheduler(m_config, this, stats);
+    case DRAM_RR_BATCH_CAP:
+      m_scheduler = new rr_batch_cap_scheduler(m_config, this, stats);
+      break;
+    case DRAM_RR_REQ_CAP:
+      m_scheduler = new rr_req_cap_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
@@ -1369,8 +1377,40 @@ void dram_t::print(FILE *simFile) const {
   printf("avg_non_pim_queuing_delay = %lf\n", (double)non_pim_queueing_delay /
       (n_rd + n_wr + n_rd_L2_A + n_wr_WB));
 
-  if (m_config->scheduler_type == DRAM_RR) {
-    rr_scheduler *sched = (rr_scheduler*) m_scheduler;
+  if (m_config->scheduler_type == DRAM_RR_BATCH_CAP) {
+    rr_batch_cap_scheduler *sched = (rr_batch_cap_scheduler*) m_scheduler;
+
+    sched->finalize_stats();
+
+    std::vector<unsigned long long> stats = get_stats<unsigned long long>(
+        &(sched->m_pim_batch_exec_time));
+
+    printf("\nAvgPimBatchExecTime = %u", stats[0]);
+    printf("\nMaxPimBatchExecTime = %u", stats[2]);
+    printf("\nStDevPimBatchExecTime = %u", stats[1]);
+
+    unsigned len = sched->m_pim_batch_exec_time.size();
+    double avg_batch_size = 0;
+    if (len > 0) { avg_batch_size = n_pim / len; }
+    printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
+
+    // MEM batch execution time
+    stats = get_stats<unsigned long long>(&(sched->m_mem_batch_exec_time));
+
+    printf("\nAvgMemBatchExecTime = %u", stats[0]);
+    printf("\nMaxMemBatchExecTime = %u", stats[2]);
+    printf("\nStDevMemBatchExecTime = %u\n", stats[1]);
+
+    // Wasted MEM batch cycles
+    stats = get_stats<unsigned long long>(&(sched->m_mem_wasted_cycles));
+
+    printf("\nAvgMemWastedCycles = %u", stats[0]);
+    printf("\nMaxMemWastedCycles = %u", stats[2]);
+    printf("\nStDevMemWastedCycles = %u\n", stats[1]);
+  }
+
+  if (m_config->scheduler_type == DRAM_RR_REQ_CAP) {
+    rr_req_cap_scheduler *sched = (rr_req_cap_scheduler*) m_scheduler;
 
     sched->finalize_stats();
 
@@ -1484,6 +1524,38 @@ void dram_t::print(FILE *simFile) const {
           sched->m_pim2mem_switch_reason.end(), i);
       printf("  %s: %u\n", paws_switch_reason_str[i].c_str(), count);
     }
+  }
+
+  if (m_config->scheduler_type == DRAM_PAWS_NEW) {
+    paws_new_scheduler *sched = (paws_new_scheduler*) m_scheduler;
+
+    sched->finalize_stats();
+
+    std::vector<unsigned long long> stats = get_stats<unsigned long long>(
+        &(sched->m_pim_batch_exec_time));
+
+    printf("\nAvgPimBatchExecTime = %u", stats[0]);
+    printf("\nMaxPimBatchExecTime = %u", stats[2]);
+    printf("\nStDevPimBatchExecTime = %u", stats[1]);
+
+    unsigned len = sched->m_pim_batch_exec_time.size();
+    double avg_batch_size = 0;
+    if (len > 0) { avg_batch_size = n_pim / len; }
+    printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
+
+    // MEM batch execution time
+    stats = get_stats<unsigned long long>(&(sched->m_mem_batch_exec_time));
+
+    printf("\nAvgMemBatchExecTime = %u", stats[0]);
+    printf("\nMaxMemBatchExecTime = %u", stats[2]);
+    printf("\nStDevMemBatchExecTime = %u\n", stats[1]);
+
+    // Wasted MEM batch cycles
+    stats = get_stats<unsigned long long>(&(sched->m_mem_wasted_cycles));
+
+    printf("\nAvgMemWastedCycles = %u", stats[0]);
+    printf("\nMaxMemWastedCycles = %u", stats[2]);
+    printf("\nStDevMemWastedCycles = %u\n", stats[1]);
   }
 
   if (m_config->scheduler_type == DRAM_FR_RR_FCFS) {

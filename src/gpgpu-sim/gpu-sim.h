@@ -74,9 +74,11 @@ enum dram_ctrl_t {
     DRAM_GI = 4,
     DRAM_GI_MEM = 5,
     DRAM_BLISS = 6,
-    DRAM_RR = 7,
-    DRAM_FR_RR_FCFS = 8,
-    DRAM_PAWS = 9,
+    DRAM_RR_BATCH_CAP = 7,
+    DRAM_RR_REQ_CAP = 8,
+    DRAM_FR_RR_FCFS = 9,
+    DRAM_PAWS = 10,
+    DRAM_PAWS_NEW = 11,
     NUM_DRAM_POLICIES
 };
 

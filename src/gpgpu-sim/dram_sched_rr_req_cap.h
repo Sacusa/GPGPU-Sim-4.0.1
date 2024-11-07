@@ -1,5 +1,5 @@
-#ifndef __DRAM_SCHED_RR__
-#define __DRAM_SCHED_RR__
+#ifndef __DRAM_SCHED_RR_REQ_CAP__
+#define __DRAM_SCHED_RR_REQ_CAP__
 
 #include <list>
 #include <map>
@@ -8,9 +8,10 @@
 #include "gpu-sim.h"
 #include "shader.h"
 
-class rr_scheduler : public dram_scheduler {
+class rr_req_cap_scheduler : public dram_scheduler {
  public:
-  rr_scheduler(const memory_config *config, dram_t *dm, memory_stats_t *stats);
+  rr_req_cap_scheduler(const memory_config *config, dram_t *dm,
+          memory_stats_t *stats);
   void update_mode() override;
   dram_req_t *schedule(unsigned bank, unsigned curr_row) override;
   dram_req_t *schedule_pim() override;

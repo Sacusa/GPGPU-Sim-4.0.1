@@ -69,16 +69,18 @@ extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 enum dram_ctrl_t {
     DRAM_FIFO = 0,
     DRAM_FRFCFS = 1,
-    DRAM_MEM_FIRST = 2,
-    DRAM_PIM_FIRST = 3,
-    DRAM_GI = 4,
-    DRAM_GI_MEM = 5,
-    DRAM_BLISS = 6,
-    DRAM_RR_BATCH_CAP = 7,
-    DRAM_RR_REQ_CAP = 8,
-    DRAM_FR_RR_FCFS = 9,
-    DRAM_PAWS = 10,
-    DRAM_PAWS_NEW = 11,
+    DRAM_PIM_FRFCFS = 2,
+    DRAM_MEM_FIRST = 3,
+    DRAM_PIM_FIRST = 4,
+    DRAM_GI = 5,
+    DRAM_GI_MEM = 6,
+    DRAM_BLISS = 7,
+    DRAM_FR_RR_FCFS = 8,
+    DRAM_RR_BATCH_CAP = 9,
+    DRAM_RR_REQ_CAP = 10,
+    DRAM_RR_MEM = 11,
+    DRAM_PAWS = 12,
+    DRAM_PAWS_NEW = 13,
     NUM_DRAM_POLICIES
 };
 

@@ -37,7 +37,9 @@
 #include "dram_sched_paws.h"
 #include "dram_sched_paws_new.h"
 #include "dram_sched_pim_first.h"
+#include "dram_sched_pim_frfcfs.h"
 #include "dram_sched_rr_batch_cap.h"
+#include "dram_sched_rr_mem.h"
 #include "dram_sched_rr_req_cap.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
@@ -186,8 +188,14 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
       break;
+    case DRAM_PIM_FRFCFS:
+      m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
+      break;
     case DRAM_RR_BATCH_CAP:
       m_scheduler = new rr_batch_cap_scheduler(m_config, this, stats);
+      break;
+    case DRAM_RR_MEM:
+      m_scheduler = new rr_mem_scheduler(m_config, this, stats);
       break;
     case DRAM_RR_REQ_CAP:
       m_scheduler = new rr_req_cap_scheduler(m_config, this, stats);
@@ -1376,6 +1384,24 @@ void dram_t::print(FILE *simFile) const {
   printf("avg_pim_queuing_delay = %lf\n", (double)pim_queueing_delay / n_pim);
   printf("avg_non_pim_queuing_delay = %lf\n", (double)non_pim_queueing_delay /
       (n_rd + n_wr + n_rd_L2_A + n_wr_WB));
+
+  if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
+    pim_frfcfs_scheduler *sched = (pim_frfcfs_scheduler*) m_scheduler;
+
+    printf("\nMEM2PIM Switch Breakdown:\n");
+    for (int i = 0; i < PIM_FRFCFS_NUM_SWITCH_REASONS; i++) {
+      printf("  %s: %d\n", pim_frfcfs_switch_reason_str[i].c_str(),
+          sched->m_mem2pim_switch_reason[
+            static_cast<pim_frfcfs_switch_reason>(i)]);
+    }
+
+    printf("\nPIM2MEM Switch Breakdown:\n");
+    for (int i = 0; i < PIM_FRFCFS_NUM_SWITCH_REASONS; i++) {
+      printf("  %s: %d\n", pim_frfcfs_switch_reason_str[i].c_str(),
+          sched->m_pim2mem_switch_reason[
+            static_cast<pim_frfcfs_switch_reason>(i)]);
+    }
+  }
 
   if (m_config->scheduler_type == DRAM_RR_BATCH_CAP) {
     rr_batch_cap_scheduler *sched = (rr_batch_cap_scheduler*) m_scheduler;

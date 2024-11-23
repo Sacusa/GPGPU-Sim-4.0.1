@@ -55,7 +55,10 @@ class dram_scheduler {
   unsigned num_pim_pending() const { return m_num_pim_pending; }
 
  private:
-  unsigned m_num_bypasses;  // Used to enforce CAP
+  unsigned m_curr_pim_row;
+  std::vector<bool> m_bank_issued_mem_req;
+  std::vector<bool> m_bank_ready_to_switch;
+  unsigned m_num_bypasses;
 
  protected:
   const memory_config *m_config;

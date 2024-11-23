@@ -72,6 +72,11 @@ dram_scheduler::dram_scheduler(const memory_config *config, dram_t *dm,
   m_pim_queue = new std::list<dram_req_t *>;
   m_pim_queue->clear();
 
+  for (int r = 0; r < FRFCFS_NUM_SWITCH_REASONS; r++) {
+    m_mem2pim_switch_reason[static_cast<frfcfs_switch_reason>(r)] = 0;
+    m_pim2mem_switch_reason[static_cast<frfcfs_switch_reason>(r)] = 0;
+  }
+
   m_curr_pim_row = 0;
   m_bank_issued_mem_req.resize(m_config->nbk, false);
   m_bank_ready_to_switch.resize(m_config->nbk, false);
@@ -197,16 +202,24 @@ void dram_scheduler::update_mode() {
 
             // Switch to MEM, if:
             // 1) PIM has a row buffer conflict and is not the oldest request
+            if ((m_pim_queue->front()->row != m_curr_pim_row) && \
+                !is_pim_oldest) {
+              switch_to_mem = true;
+              m_pim2mem_switch_reason[FRFCFS_OLDEST_FIRST]++;
+            }
+
             // 2) CAP is enabled and has been exceeded
-            switch_to_mem = ((m_pim_queue->front()->row != m_curr_pim_row) && \
-                             !is_pim_oldest) || \
-                            ((m_config->frfcfs_cap > 0) && \
-                             (m_num_bypasses > m_config->frfcfs_cap));
+            else if ((m_config->frfcfs_cap > 0) && \
+                     (m_num_bypasses > m_config->frfcfs_cap)) {
+              switch_to_mem = true;
+              m_pim2mem_switch_reason[FRFCFS_CAP_EXCEEDED]++;
+            }
           }
         }
 
         else {
           switch_to_mem = true;
+          m_pim2mem_switch_reason[FRFCFS_OUT_OF_REQUESTS]++;
         }
       }
 
@@ -258,14 +271,22 @@ void dram_scheduler::update_mode() {
             switch_to_pim = switch_to_pim && m_bank_ready_to_switch[b];
           }
 
+          if (switch_to_pim) {
+            m_mem2pim_switch_reason[FRFCFS_OLDEST_FIRST]++;
+          }
+
           if (is_pim_oldest) { m_num_bypasses++; }
 
-          switch_to_pim = switch_to_pim || ((m_config->frfcfs_cap > 0) && \
-              (m_num_bypasses > m_config->frfcfs_cap));
+          if ((m_config->frfcfs_cap > 0) && \
+              (m_num_bypasses > m_config->frfcfs_cap)) {
+            switch_to_pim = true;
+            m_mem2pim_switch_reason[FRFCFS_CAP_EXCEEDED]++;
+          }
         }
 
         else {
           switch_to_pim = true;
+          m_mem2pim_switch_reason[FRFCFS_OUT_OF_REQUESTS]++;
         }
       }
 

@@ -1385,6 +1385,24 @@ void dram_t::print(FILE *simFile) const {
   printf("avg_non_pim_queuing_delay = %lf\n", (double)non_pim_queueing_delay /
       (n_rd + n_wr + n_rd_L2_A + n_wr_WB));
 
+  if (m_config->scheduler_type == DRAM_FRFCFS) {
+    dram_scheduler *sched = (dram_scheduler*) m_scheduler;
+
+    printf("\nMEM2PIM Switch Breakdown:\n");
+    for (int i = 0; i < FRFCFS_NUM_SWITCH_REASONS; i++) {
+      printf("  %s: %d\n", frfcfs_switch_reason_str[i].c_str(),
+          sched->m_mem2pim_switch_reason[
+            static_cast<frfcfs_switch_reason>(i)]);
+    }
+
+    printf("\nPIM2MEM Switch Breakdown:\n");
+    for (int i = 0; i < FRFCFS_NUM_SWITCH_REASONS; i++) {
+      printf("  %s: %d\n", frfcfs_switch_reason_str[i].c_str(),
+          sched->m_pim2mem_switch_reason[
+            static_cast<frfcfs_switch_reason>(i)]);
+    }
+  }
+
   if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
     pim_frfcfs_scheduler *sched = (pim_frfcfs_scheduler*) m_scheduler;
 

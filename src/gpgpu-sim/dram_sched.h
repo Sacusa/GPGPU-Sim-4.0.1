@@ -36,6 +36,16 @@
 #include "gpu-sim.h"
 #include "shader.h"
 
+enum frfcfs_switch_reason {
+  FRFCFS_OLDEST_FIRST = 0,
+  FRFCFS_OUT_OF_REQUESTS,
+  FRFCFS_CAP_EXCEEDED,
+  FRFCFS_NUM_SWITCH_REASONS
+};
+
+const std::string frfcfs_switch_reason_str[] = {"OldestFirst", "OutOfRequests",
+  "CapExceeded"};
+
 class dram_scheduler {
  public:
   dram_scheduler(const memory_config *config, dram_t *dm,
@@ -53,6 +63,10 @@ class dram_scheduler {
   unsigned num_pending() const { return m_num_pending; }
   unsigned num_write_pending() const { return m_num_write_pending; }
   unsigned num_pim_pending() const { return m_num_pim_pending; }
+
+  // Stats
+  std::map<frfcfs_switch_reason, unsigned> m_mem2pim_switch_reason;
+  std::map<frfcfs_switch_reason, unsigned> m_pim2mem_switch_reason;
 
  private:
   unsigned m_curr_pim_row;

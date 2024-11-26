@@ -9,9 +9,6 @@
 #include "gpu-sim.h"
 #include "shader.h"
 
-#define BLISS_CLEARING_INTERVAL      10000
-#define BLISS_BLACKLISTING_THRESHOLD 4
-
 enum request_type { REQ_NONE = 0, REQ_MEM, REQ_PIM};
 
 class bliss_scheduler : public dram_scheduler {
@@ -29,6 +26,12 @@ class bliss_scheduler : public dram_scheduler {
   unsigned long long m_cycles_mem_blacklisted;
 
  private:
+  // State for FR-FCFS
+  unsigned m_curr_pim_row;
+  std::vector<bool> m_bank_issued_mem_req;
+  std::vector<bool> m_bank_ready_to_switch;
+  unsigned m_num_bypasses;
+
   std::list<std::list<dram_req_t *>::iterator> *m_pim_queue_it;
 
   unsigned m_requests_served;

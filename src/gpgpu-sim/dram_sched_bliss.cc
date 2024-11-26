@@ -20,6 +20,13 @@ bliss_scheduler::bliss_scheduler(const memory_config *config,
   m_cycles_both_blacklisted = 0;
   m_cycles_pim_blacklisted = 0;
   m_cycles_mem_blacklisted = 0;
+
+  m_curr_pim_row = 0;
+  m_bank_issued_mem_req.resize(m_config->nbk, false);
+  m_bank_ready_to_switch.resize(m_config->nbk, false);
+  m_num_bypasses = 0;
+
+  assert(m_config->frfcfs_cap == 0);
 }
 
 void bliss_scheduler::update_mode() {
@@ -62,12 +69,25 @@ void bliss_scheduler::update_mode() {
 
   if (prev_mode != m_dram->mode) {
     if (prev_mode == PIM_MODE) {
+      // Reset FR-FCFS state
+      m_curr_pim_row = 0;
+      m_num_bypasses = 0;
+
       m_dram->pim2nonpimswitches++;
+
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to non-PIM mode\n");
 #endif
     } else {
+      // Reset FR-FCFS state
+      std::fill(m_bank_issued_mem_req.begin(), m_bank_issued_mem_req.end(),
+          false);
+      std::fill(m_bank_ready_to_switch.begin(), m_bank_ready_to_switch.end(),
+          false);
+      m_num_bypasses = 0;
+
       m_dram->nonpim2pimswitches++;
+
 #ifdef DRAM_SCHED_VERIFY
       printf("DRAM: Switching to PIM mode\n");
 #endif

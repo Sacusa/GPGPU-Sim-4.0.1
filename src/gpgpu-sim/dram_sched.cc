@@ -177,7 +177,8 @@ void dram_scheduler::update_mode() {
   bool have_mem = have_reads || have_writes;
   bool have_pim = m_num_pim_pending > 0;
 
-  if (m_config->scheduler_type == DRAM_FRFCFS) {
+  if ((m_config->scheduler_type == DRAM_FRFCFS) || \
+      (m_config->scheduler_type == DRAM_BLISS)) {
     if (m_dram->mode == PIM_MODE) {
       bool switch_to_mem = false;
 
@@ -339,7 +340,8 @@ dram_req_t *dram_scheduler::schedule(unsigned bank, unsigned curr_row) {
     m_current_last_row = m_last_write_row;
   }
 
-  if (m_config->scheduler_type == DRAM_FRFCFS) {
+  if ((m_config->scheduler_type == DRAM_FRFCFS) || \
+      (m_config->scheduler_type == DRAM_BLISS)) {
     m_bank_issued_mem_req[bank] = true;
 
     if (m_bank_ready_to_switch[bank]) {
@@ -435,7 +437,8 @@ dram_req_t *dram_scheduler::schedule_pim() {
     m_stats->row_access[m_dram->id][b]++;
   }
 
-  if (m_config->scheduler_type == DRAM_FRFCFS) {
+  if ((m_config->scheduler_type == DRAM_FRFCFS) || \
+      (m_config->scheduler_type == DRAM_BLISS)) {
     m_curr_pim_row = req->row;
   }
 

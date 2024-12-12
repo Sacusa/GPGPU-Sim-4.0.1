@@ -177,136 +177,141 @@ void dram_scheduler::update_mode() {
   bool have_mem = have_reads || have_writes;
   bool have_pim = m_num_pim_pending > 0;
 
-  if ((m_config->scheduler_type == DRAM_FRFCFS) || \
-      (m_config->scheduler_type == DRAM_BLISS)) {
-    if (m_dram->mode == PIM_MODE) {
-      bool switch_to_mem = false;
+  if (m_dram->mode == PIM_MODE) {
+    bool switch_to_mem = false;
 
-      if (have_mem) {
-        if (have_pim) {
-          if (m_curr_pim_row != 0) {
-            bool is_pim_oldest = true;
-
-            for (unsigned int b = 0; b < m_config->nbk; b++) {
-              if (m_queue[b].size() == 0) { continue; }
-
-              if (m_queue[b].back()->timestamp < \
-                      m_pim_queue->front()->timestamp){
-                // There is *at least* one MEM request older than the oldest
-                // PIM request
-                is_pim_oldest = false;
-                break;
-              }
-            }
-
-            if (!is_pim_oldest) { m_num_bypasses++; }
-
-            // Switch to MEM, if:
-            // 1) PIM has a row buffer conflict and is not the oldest request
-            if ((m_pim_queue->front()->row != m_curr_pim_row) && \
-                !is_pim_oldest) {
-              switch_to_mem = true;
-              m_pim2mem_switch_reason[FRFCFS_OLDEST_FIRST]++;
-            }
-
-            // 2) CAP is enabled and has been exceeded
-            else if ((m_config->frfcfs_cap > 0) && \
-                     (m_num_bypasses > m_config->frfcfs_cap)) {
-              switch_to_mem = true;
-              m_pim2mem_switch_reason[FRFCFS_CAP_EXCEEDED]++;
-            }
-          }
-        }
-
-        else {
-          switch_to_mem = true;
-          m_pim2mem_switch_reason[FRFCFS_OUT_OF_REQUESTS]++;
-        }
-      }
-
-      if (switch_to_mem) {
-        m_curr_pim_row = 0;
-        m_num_bypasses = 0;
-
-        m_dram->mode = READ_MODE;
-        m_dram->pim2nonpimswitches++;
-
-#ifdef DRAM_SCHED_VERIFY
-        printf("DRAM %d: Switching to non-PIM mode\n", m_dram->id);
-#endif
-      }
-    }
-
-    else {
-      bool switch_to_pim = false;
-
+    if (have_mem) {
       if (have_pim) {
-        if (have_mem) {
+        if (m_curr_pim_row != 0) {
           bool is_pim_oldest = true;
-          switch_to_pim = true;
 
           for (unsigned int b = 0; b < m_config->nbk; b++) {
-            if ((m_queue[b].size() > 0) && (m_queue[b].back()->timestamp < \
-                    m_pim_queue->front()->timestamp)) {
+            if (m_queue[b].size() == 0) { continue; }
+
+            if (m_queue[b].back()->timestamp < \
+                    m_pim_queue->front()->timestamp){
               // There is *at least* one MEM request older than the oldest
               // PIM request
               is_pim_oldest = false;
+              break;
             }
-
-            if (!m_bank_ready_to_switch[b]) {
-              // A bank is ready to switch if:
-              // 1) it has no pending requests, or
-              // 2) the next request conflicts and the oldest request is a PIM
-              //    request.
-              //
-              // Setting this flag also signals the scheduler to stop issuing
-              // requests to the bank.
-              m_bank_ready_to_switch[b] = (m_queue[b].size() == 0) || \
-                  (m_bank_issued_mem_req[b] && \
-                   !is_next_req_hit(b, m_dram->bk[b]->curr_row,
-                                    m_dram->mode) && \
-                   (m_queue[b].back()->timestamp > \
-                    m_pim_queue->front()->timestamp));
-            }
-
-            switch_to_pim = switch_to_pim && m_bank_ready_to_switch[b];
           }
 
-          if (switch_to_pim) {
-            m_mem2pim_switch_reason[FRFCFS_OLDEST_FIRST]++;
+          if (!is_pim_oldest) { m_num_bypasses++; }
+
+          // Switch to MEM, if:
+          // 1) PIM has a row buffer conflict and is not the oldest request
+          if ((m_pim_queue->front()->row != m_curr_pim_row) && \
+              !is_pim_oldest) {
+            switch_to_mem = true;
+            m_pim2mem_switch_reason[FRFCFS_OLDEST_FIRST]++;
           }
 
-          if (is_pim_oldest) { m_num_bypasses++; }
-
-          if ((m_config->frfcfs_cap > 0) && \
-              (m_num_bypasses > m_config->frfcfs_cap)) {
-            switch_to_pim = true;
-            m_mem2pim_switch_reason[FRFCFS_CAP_EXCEEDED]++;
+          // 2) CAP is enabled and has been exceeded
+          else if ((m_config->frfcfs_cap > 0) && \
+                   (m_num_bypasses > m_config->frfcfs_cap)) {
+            switch_to_mem = true;
+            m_pim2mem_switch_reason[FRFCFS_CAP_EXCEEDED]++;
           }
-        }
-
-        else {
-          switch_to_pim = true;
-          m_mem2pim_switch_reason[FRFCFS_OUT_OF_REQUESTS]++;
         }
       }
 
-      if (switch_to_pim) {
-        std::fill(m_bank_issued_mem_req.begin(), m_bank_issued_mem_req.end(),
-            false);
-        std::fill(m_bank_ready_to_switch.begin(), m_bank_ready_to_switch.end(),
-            false);
-        m_num_bypasses = 0;
-
-        m_dram->mode = PIM_MODE;
-        m_dram->nonpim2pimswitches++;
-
-#ifdef DRAM_SCHED_VERIFY
-        printf("DRAM %d: Switching to PIM mode\n", m_dram->id);
-#endif
+      else {
+        switch_to_mem = true;
+        m_pim2mem_switch_reason[FRFCFS_OUT_OF_REQUESTS]++;
       }
     }
+
+    if (switch_to_mem) {
+      m_curr_pim_row = 0;
+      m_num_bypasses = 0;
+
+      m_dram->mode = READ_MODE;
+      m_dram->pim2nonpimswitches++;
+
+#ifdef DRAM_SCHED_VERIFY
+      printf("DRAM %d: Switching to non-PIM mode\n", m_dram->id);
+#endif
+    }
   }
+
+  else {
+    bool switch_to_pim = false;
+
+    if (have_pim) {
+      if (have_mem) {
+        bool is_pim_oldest = true;
+        switch_to_pim = true;
+
+        for (unsigned int b = 0; b < m_config->nbk; b++) {
+          if ((m_queue[b].size() > 0) && (m_queue[b].back()->timestamp < \
+                  m_pim_queue->front()->timestamp)) {
+            // There is *at least* one MEM request older than the oldest
+            // PIM request
+            is_pim_oldest = false;
+          }
+
+          if (!m_bank_ready_to_switch[b]) {
+            // A bank is ready to switch if:
+            // 1) it has no pending requests, or
+            // 2) the next request conflicts and the oldest request is a PIM
+            //    request.
+            //
+            // Setting this flag also signals the scheduler to stop issuing
+            // requests to the bank.
+            m_bank_ready_to_switch[b] = (m_queue[b].size() == 0) || \
+                (m_bank_issued_mem_req[b] && \
+                 !is_next_req_hit(b, m_dram->bk[b]->curr_row,
+                                  m_dram->mode) && \
+                 (m_queue[b].back()->timestamp > \
+                  m_pim_queue->front()->timestamp));
+          }
+
+          switch_to_pim = switch_to_pim && m_bank_ready_to_switch[b];
+        }
+
+        if (switch_to_pim) {
+          m_mem2pim_switch_reason[FRFCFS_OLDEST_FIRST]++;
+        }
+
+        if (is_pim_oldest) { m_num_bypasses++; }
+
+        if ((m_config->frfcfs_cap > 0) && \
+            (m_num_bypasses > m_config->frfcfs_cap)) {
+          switch_to_pim = true;
+          m_mem2pim_switch_reason[FRFCFS_CAP_EXCEEDED]++;
+        }
+      }
+
+      else {
+        switch_to_pim = true;
+        m_mem2pim_switch_reason[FRFCFS_OUT_OF_REQUESTS]++;
+      }
+    }
+
+    if (switch_to_pim) {
+      std::fill(m_bank_issued_mem_req.begin(), m_bank_issued_mem_req.end(),
+          false);
+      std::fill(m_bank_ready_to_switch.begin(), m_bank_ready_to_switch.end(),
+          false);
+      m_num_bypasses = 0;
+
+      m_dram->mode = PIM_MODE;
+      m_dram->nonpim2pimswitches++;
+
+#ifdef DRAM_SCHED_VERIFY
+      printf("DRAM %d: Switching to PIM mode\n", m_dram->id);
+#endif
+    }
+  }
+
+  update_rw_mode();
+}
+
+void dram_scheduler::update_rw_mode() {
+  bool have_reads = m_num_pending > 0;
+  bool have_writes = m_num_write_pending > 0;
+  bool have_mem = have_reads || have_writes;
 
   if (m_dram->mode != PIM_MODE) {
     if (m_config->seperate_write_queue_enabled) {

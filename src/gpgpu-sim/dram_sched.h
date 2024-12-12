@@ -75,6 +75,8 @@ class dram_scheduler {
   unsigned m_num_bypasses;
 
  protected:
+  void update_rw_mode();
+
   const memory_config *m_config;
   dram_t *m_dram;
   unsigned m_num_pending;

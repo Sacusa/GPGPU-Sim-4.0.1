@@ -65,7 +65,7 @@ void rr_mem_scheduler::update_mode() {
     }
   }
 
-  dram_scheduler::update_mode();
+  update_rw_mode();
 }
 
 dram_req_t *rr_mem_scheduler::schedule(unsigned bank, unsigned curr_row) {

@@ -110,6 +110,8 @@ void fr_rr_fcfs_scheduler::update_mode() {
 #endif
     }
   }
+
+  update_rw_mode();
 }
 
 dram_req_t *fr_rr_fcfs_scheduler::schedule(unsigned bank, unsigned curr_row) {

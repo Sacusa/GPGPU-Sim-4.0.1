@@ -18,5 +18,5 @@ void mem_first_scheduler::update_mode() {
     m_dram->mode = READ_MODE;
   }
 
-  dram_scheduler::update_mode();
+  update_rw_mode();
 }

@@ -102,7 +102,7 @@ void rr_batch_cap_scheduler::update_mode() {
     }
   }
 
-  dram_scheduler::update_mode();
+  update_rw_mode();
 }
 
 dram_req_t *rr_batch_cap_scheduler::schedule(unsigned bank, unsigned curr_row) {

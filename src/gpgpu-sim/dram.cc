@@ -1637,13 +1637,13 @@ void dram_t::print(FILE *simFile) const {
     bliss_scheduler *sched = (bliss_scheduler*) m_scheduler;
     printf("\nBlacklist statistics\n");
     printf("Total cycles = %ull\n", m_dram_cycle);
-    printf("Cycles none blacklisted = %ull\n",
+    printf("Cycles none blacklisted = %u\n",
         sched->m_cycles_none_blacklisted);
-    printf("Cycles both blacklisted = %ull\n",
+    printf("Cycles both blacklisted = %u\n",
         sched->m_cycles_both_blacklisted);
-    printf("Cycles PIM blacklisted = %ull\n",
+    printf("Cycles PIM blacklisted = %u\n",
         sched->m_cycles_pim_blacklisted);
-    printf("Cycles MEM blacklisted = %ull\n",
+    printf("Cycles MEM blacklisted = %u\n",
         sched->m_cycles_mem_blacklisted);
   }
 

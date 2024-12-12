@@ -29,6 +29,7 @@ class pim_frfcfs_scheduler : public dram_scheduler {
   std::map<pim_frfcfs_switch_reason, unsigned> m_pim2mem_switch_reason;
 
  private:
+  unsigned m_pim_cap;
   unsigned m_num_bypasses;  // Used to enforce CAP
 };
 

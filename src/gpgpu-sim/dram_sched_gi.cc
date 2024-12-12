@@ -45,5 +45,5 @@ void gi_scheduler::update_mode() {
     }
   }
 
-  dram_scheduler::update_mode();
+  update_rw_mode();
 }

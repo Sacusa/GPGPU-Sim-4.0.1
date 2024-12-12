@@ -207,6 +207,8 @@ void paws_scheduler::update_mode() {
 #endif
     }
   }
+
+  update_rw_mode();
 }
 
 dram_req_t *paws_scheduler::schedule(unsigned bank, unsigned curr_row) {

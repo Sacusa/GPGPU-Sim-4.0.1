@@ -30,8 +30,6 @@ bliss_scheduler::bliss_scheduler(const memory_config *config,
 }
 
 void bliss_scheduler::update_mode() {
-  enum memory_mode prev_mode = m_dram->mode;
-
   if ((m_dram->m_dram_cycle % m_config->bliss_clearing_interval) == 0) {
     m_requests_served = 0;
     m_prev_request_type = REQ_NONE;
@@ -44,6 +42,8 @@ void bliss_scheduler::update_mode() {
   }
 
   if (is_pim_blacklisted != is_mem_blacklisted) {
+    enum memory_mode prev_mode = m_dram->mode;
+
     if (is_pim_blacklisted) {
       if (m_num_pending > 0)          { m_dram->mode = READ_MODE; }
       else if (m_num_pim_pending > 0) { m_dram->mode = PIM_MODE; }
@@ -57,45 +57,47 @@ void bliss_scheduler::update_mode() {
 
       m_cycles_mem_blacklisted++;
     }
+
+    if (prev_mode != m_dram->mode) {
+      if (prev_mode == PIM_MODE) {
+        // Reset FR-FCFS state
+        m_curr_pim_row = 0;
+        m_num_bypasses = 0;
+
+        m_dram->pim2nonpimswitches++;
+
+#ifdef DRAM_SCHED_VERIFY
+        printf("DRAM: Switching to non-PIM mode\n");
+#endif
+      } else {
+        // Reset FR-FCFS state
+        std::fill(m_bank_issued_mem_req.begin(), m_bank_issued_mem_req.end(),
+            false);
+        std::fill(m_bank_ready_to_switch.begin(), m_bank_ready_to_switch.end(),
+            false);
+        m_num_bypasses = 0;
+
+        m_dram->nonpim2pimswitches++;
+
+#ifdef DRAM_SCHED_VERIFY
+        printf("DRAM: Switching to PIM mode\n");
+#endif
+      }
+    }
+
+    update_rw_mode();
   }
 
   else {
+    // If both/none of the applications are blacklisted, use FR-FCFS
+    dram_scheduler::update_mode();
+
     if (is_pim_blacklisted) {
       m_cycles_both_blacklisted++;
     } else {
       m_cycles_none_blacklisted++;
     }
   }
-
-  if (prev_mode != m_dram->mode) {
-    if (prev_mode == PIM_MODE) {
-      // Reset FR-FCFS state
-      m_curr_pim_row = 0;
-      m_num_bypasses = 0;
-
-      m_dram->pim2nonpimswitches++;
-
-#ifdef DRAM_SCHED_VERIFY
-      printf("DRAM: Switching to non-PIM mode\n");
-#endif
-    } else {
-      // Reset FR-FCFS state
-      std::fill(m_bank_issued_mem_req.begin(), m_bank_issued_mem_req.end(),
-          false);
-      std::fill(m_bank_ready_to_switch.begin(), m_bank_ready_to_switch.end(),
-          false);
-      m_num_bypasses = 0;
-
-      m_dram->nonpim2pimswitches++;
-
-#ifdef DRAM_SCHED_VERIFY
-      printf("DRAM: Switching to PIM mode\n");
-#endif
-    }
-  }
-
-  // If both/none of the applications are blacklisted, use FR-FCFS
-  dram_scheduler::update_mode();
 }
 
 dram_req_t *bliss_scheduler::schedule(unsigned bank, unsigned curr_row) {

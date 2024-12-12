@@ -18,5 +18,5 @@ void pim_first_scheduler::update_mode() {
     m_dram->mode = PIM_MODE;
   }
 
-  dram_scheduler::update_mode();
+  update_rw_mode();
 }

@@ -9,6 +9,7 @@ pim_frfcfs_scheduler::pim_frfcfs_scheduler(const memory_config *config,
     dram_t *dm, memory_stats_t *stats) : dram_scheduler(config, dm, stats)
 {
   m_num_bypasses = 0;
+  m_pim_cap = m_config->frfcfs_cap * m_config->max_pim_slowdown;
 }
 
 void pim_frfcfs_scheduler::update_mode() {
@@ -20,7 +21,7 @@ void pim_frfcfs_scheduler::update_mode() {
   if (m_dram->mode == PIM_MODE) {
     bool cap_exceeded = false;
 
-    if ((m_config->frfcfs_cap > 0) && have_mem && have_pim) {
+    if ((m_pim_cap > 0) && have_mem && have_pim) {
       for (unsigned int b = 0; b < m_config->nbk; b++) {
         if (m_queue[b].size() == 0) { continue; }
 
@@ -34,7 +35,7 @@ void pim_frfcfs_scheduler::update_mode() {
         }
       }
 
-      cap_exceeded = m_num_bypasses > m_config->frfcfs_cap;
+      cap_exceeded = m_num_bypasses > m_pim_cap;
     }
 
     if ((have_mem && !have_pim) || cap_exceeded) {
@@ -95,5 +96,5 @@ void pim_frfcfs_scheduler::update_mode() {
     }
   }
 
-  dram_scheduler::update_mode();
+  update_rw_mode();
 }

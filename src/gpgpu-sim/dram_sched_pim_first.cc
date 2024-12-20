@@ -10,13 +10,21 @@ pim_first_scheduler::pim_first_scheduler(const memory_config *config,
 {}
 
 void pim_first_scheduler::update_mode() {
-  if (m_num_pim_pending > 0) {
-    if (m_dram->mode != PIM_MODE) {
-      m_dram->nonpim2pimswitches++;
-    }
+  bool have_mem = (m_num_pending + m_num_write_pending) > 0;
+  bool have_pim = m_num_pim_pending > 0;
 
-    m_dram->mode = PIM_MODE;
+  if (m_dram->mode == PIM_MODE) {
+    if (!have_pim && have_mem) {
+      m_dram->mode = READ_MODE;
+      m_dram->pim2nonpimswitches++;
+      update_rw_mode();
+    }
   }
 
-  update_rw_mode();
+  else {
+    if (have_pim) {
+      m_dram->mode = PIM_MODE;
+      m_dram->nonpim2pimswitches++;
+    }
+  }
 }

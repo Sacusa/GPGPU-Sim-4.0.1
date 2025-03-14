@@ -74,9 +74,11 @@ class xbar_router {
   unsigned long long cycles_util;
   unsigned long long reqs_util;
   unsigned long long out_buffer_full;
-  unsigned long long out_buffer_util;
+  std::vector<unsigned long long> out_buffer_util_total;
+  std::vector<unsigned long long> out_buffer_util_peak;
   unsigned long long in_buffer_full;
-  unsigned long long in_buffer_util;
+  std::vector<unsigned long long> in_buffer_util_total;
+  std::vector<unsigned long long> in_buffer_util_peak;
   std::vector<unsigned long long> packets_num;
 
  private:

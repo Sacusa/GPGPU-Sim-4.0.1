@@ -78,8 +78,10 @@ xbar_router::xbar_router(unsigned router_id, enum Interconnect_type m_type,
   conflicts = 0;
   out_buffer_full = 0;
   in_buffer_full = 0;
-  out_buffer_util = 0;
-  in_buffer_util = 0;
+  out_buffer_util_total.resize(num_vcs, 0);
+  in_buffer_util_total.resize(num_vcs, 0);
+  out_buffer_util_peak.resize(num_vcs, 0);
+  in_buffer_util_peak.resize(num_vcs, 0);
   packets_num.resize(num_vcs, 0);
   conflicts_util = 0;
   cycles_util = 0;
@@ -206,10 +208,14 @@ void xbar_router::RR_Advance() {
   }
 
   // collect some stats about buffer util
-  for (unsigned i = 0; i < total_nodes; ++i) {
-    for (unsigned vc = 0; vc < num_vcs; vc++) {
-      in_buffer_util += in_buffers[i][vc].size();
-      out_buffer_util += out_buffers[i][vc].size();
+  for (unsigned vc = 0; vc < num_vcs; vc++) {
+    for (unsigned i = 0; i < total_nodes; ++i) {
+      in_buffer_util_total[vc] += in_buffers[i][vc].size();
+      out_buffer_util_total[vc] += out_buffers[i][vc].size();
+      in_buffer_util_peak[vc] = std::max(in_buffer_util_peak[vc],
+          (long long unsigned) in_buffers[i][vc].size());
+      out_buffer_util_peak[vc] = std::max(out_buffer_util_peak[vc],
+          (long long unsigned) out_buffers[i][vc].size());
     }
   }
 
@@ -344,10 +350,14 @@ void xbar_router::iSLIP_Advance() {
   }
 
   // collect some stats about buffer util
-  for (unsigned i = 0; i < total_nodes; ++i) {
-    for (unsigned vc = 0; vc < num_vcs; vc++) {
-      in_buffer_util += in_buffers[i][vc].size();
-      out_buffer_util += out_buffers[i][vc].size();
+  for (unsigned vc = 0; vc < num_vcs; vc++) {
+    for (unsigned i = 0; i < total_nodes; ++i) {
+      in_buffer_util_total[vc] += in_buffers[i][vc].size();
+      out_buffer_util_total[vc] += out_buffers[i][vc].size();
+      in_buffer_util_peak[vc] = std::max(in_buffer_util_peak[vc],
+          (long long unsigned) in_buffers[i][vc].size());
+      out_buffer_util_peak[vc] = std::max(out_buffer_util_peak[vc],
+          (long long unsigned) out_buffers[i][vc].size());
     }
   }
 
@@ -494,16 +504,26 @@ void LocalInterconnect::DisplayStats() const {
          (float)(net[REQ_NET]->conflicts_util) / (net[REQ_NET]->cycles_util));
   printf("Req_Bank_Level_Parallism = %12.4f\n",
          (float)(net[REQ_NET]->reqs_util) / (net[REQ_NET]->cycles_util));
+
   printf("Req_Network_in_buffer_full_per_cycle = %12.4f\n",
          (float)(net[REQ_NET]->in_buffer_full) / (net[REQ_NET]->cycles));
-  printf("Req_Network_in_buffer_avg_util = %12.4f\n",
-         ((float)(net[REQ_NET]->in_buffer_util) / (net[REQ_NET]->cycles) /
-          net[REQ_NET]->active_in_buffers));
+  for (unsigned vc = 0; vc < n_shader_to_mem_vcs; vc++) {
+    printf("Req_Network_in_buffer_avg_util (vc=%u) = %12.4f\n", vc,
+           ((float)(net[REQ_NET]->in_buffer_util_total[vc]) /
+            (net[REQ_NET]->cycles) / net[REQ_NET]->active_in_buffers));
+    printf("Req_Network_in_buffer_peak_util (vc=%u) = %12.4f\n", vc,
+           (float)(net[REQ_NET]->in_buffer_util_peak[vc]));
+  }
+
   printf("Req_Network_out_buffer_full_per_cycle = %12.4f\n",
          (float)(net[REQ_NET]->out_buffer_full) / (net[REQ_NET]->cycles));
-  printf("Req_Network_out_buffer_avg_util = %12.4f\n",
-         ((float)(net[REQ_NET]->out_buffer_util) / (net[REQ_NET]->cycles) /
-          net[REQ_NET]->active_out_buffers));
+  for (unsigned vc = 0; vc < n_shader_to_mem_vcs; vc++) {
+    printf("Req_Network_out_buffer_avg_util (vc=%u) = %12.4f\n", vc,
+           ((float)(net[REQ_NET]->out_buffer_util_total[vc]) /
+            (net[REQ_NET]->cycles) / net[REQ_NET]->active_out_buffers));
+    printf("Req_Network_out_buffer_peak_util (vc=%u) = %12.4f\n", vc,
+           (float)(net[REQ_NET]->out_buffer_util_peak[vc]));
+  }
 
   printf("\n");
   printf("Reply_Network_cycles = %lld\n", net[REPLY_NET]->cycles);
@@ -521,16 +541,26 @@ void LocalInterconnect::DisplayStats() const {
       (float)(net[REPLY_NET]->conflicts_util) / (net[REPLY_NET]->cycles_util));
   printf("Reply_Bank_Level_Parallism = %12.4f\n",
          (float)(net[REPLY_NET]->reqs_util) / (net[REPLY_NET]->cycles_util));
+
   printf("Reply_Network_in_buffer_full_per_cycle = %12.4f\n",
          (float)(net[REPLY_NET]->in_buffer_full) / (net[REPLY_NET]->cycles));
-  printf("Reply_Network_in_buffer_avg_util = %12.4f\n",
-         ((float)(net[REPLY_NET]->in_buffer_util) / (net[REPLY_NET]->cycles) /
-          net[REPLY_NET]->active_in_buffers));
+  for (unsigned vc = 0; vc < n_shader_to_mem_vcs; vc++) {
+    printf("Reply_Network_in_buffer_avg_util (vc=%u) = %12.4f\n", vc,
+           ((float)(net[REPLY_NET]->in_buffer_util_total[vc]) /
+            (net[REPLY_NET]->cycles) / net[REPLY_NET]->active_in_buffers));
+    printf("Reply_Network_in_buffer_peak_util (vc=%u) = %12.4f\n", vc,
+           (float)(net[REPLY_NET]->in_buffer_util_peak[vc]));
+  }
+
   printf("Reply_Network_out_buffer_full_per_cycle = %12.4f\n",
          (float)(net[REPLY_NET]->out_buffer_full) / (net[REPLY_NET]->cycles));
-  printf("Reply_Network_out_buffer_avg_util = %12.4f\n",
-         ((float)(net[REPLY_NET]->out_buffer_util) / (net[REPLY_NET]->cycles) /
-          net[REPLY_NET]->active_out_buffers));
+  for (unsigned vc = 0; vc < n_shader_to_mem_vcs; vc++) {
+    printf("Reply_Network_out_buffer_avg_util (vc=%u) = %12.4f\n", vc,
+           ((float)(net[REPLY_NET]->out_buffer_util_total[vc]) /
+            (net[REPLY_NET]->cycles) / net[REPLY_NET]->active_out_buffers));
+    printf("Reply_Network_out_buffer_peak_util (vc=%u) = %12.4f\n", vc,
+           (float)(net[REPLY_NET]->out_buffer_util_peak[vc]));
+  }
 }
 
 void LocalInterconnect::DisplayOverallStats() const {}

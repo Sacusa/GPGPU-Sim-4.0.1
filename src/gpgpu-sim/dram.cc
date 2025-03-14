@@ -34,7 +34,7 @@
 #include "dram_sched_gi.h"
 #include "dram_sched_mem_first.h"
 #include "dram_sched_pim_first.h"
-#include "dram_sched_pim_frfcfs.h"
+#include "dram_sched_f3fs.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -164,6 +164,9 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_FR_RR_FCFS:
       m_scheduler = new fr_rr_fcfs_scheduler(m_config, this, stats);
       break;
+    case DRAM_F3FS:
+      m_scheduler = new f3fs_scheduler(m_config, this, stats);
+      break;
     case DRAM_GI:
       m_scheduler = new gi_scheduler(m_config, this, stats);
       break;
@@ -172,9 +175,6 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
       break;
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
-      break;
-    case DRAM_PIM_FRFCFS:
-      m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
@@ -1379,21 +1379,21 @@ void dram_t::print(FILE *simFile) const {
     }
   }
 
-  if (m_config->scheduler_type == DRAM_PIM_FRFCFS) {
-    pim_frfcfs_scheduler *sched = (pim_frfcfs_scheduler*) m_scheduler;
+  if (m_config->scheduler_type == DRAM_F3FS) {
+    f3fs_scheduler *sched = (f3fs_scheduler*) m_scheduler;
 
     printf("\nMEM2PIM Switch Breakdown:\n");
-    for (int i = 0; i < PIM_FRFCFS_NUM_SWITCH_REASONS; i++) {
-      printf("  %s: %d\n", pim_frfcfs_switch_reason_str[i].c_str(),
+    for (int i = 0; i < F3FS_NUM_SWITCH_REASONS; i++) {
+      printf("  %s: %d\n", f3fs_switch_reason_str[i].c_str(),
           sched->m_mem2pim_switch_reason[
-            static_cast<pim_frfcfs_switch_reason>(i)]);
+            static_cast<f3fs_switch_reason>(i)]);
     }
 
     printf("\nPIM2MEM Switch Breakdown:\n");
-    for (int i = 0; i < PIM_FRFCFS_NUM_SWITCH_REASONS; i++) {
-      printf("  %s: %d\n", pim_frfcfs_switch_reason_str[i].c_str(),
+    for (int i = 0; i < F3FS_NUM_SWITCH_REASONS; i++) {
+      printf("  %s: %d\n", f3fs_switch_reason_str[i].c_str(),
           sched->m_pim2mem_switch_reason[
-            static_cast<pim_frfcfs_switch_reason>(i)]);
+            static_cast<f3fs_switch_reason>(i)]);
     }
   }
 

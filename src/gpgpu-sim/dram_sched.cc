@@ -428,18 +428,24 @@ dram_req_t *dram_scheduler::schedule_pim() {
   m_dram->access_num++;
   m_dram->pim_num++;
 
+  bool is_row_buffer_hit = false;
+
   for (unsigned int b = 0; b < m_config->nbk; b++) {
     bool rowhit = m_dram->bk[b]->curr_row == req->row;
 
     if (rowhit) {
-      m_dram->hits_num++;
-      m_dram->hits_pim_num++;
+      is_row_buffer_hit = true;
     } else {
       data_collection(b);
     }
 
     m_stats->concurrent_row_access[m_dram->id][b]++;
     m_stats->row_access[m_dram->id][b]++;
+  }
+
+  if (is_row_buffer_hit) {
+    m_dram->hits_num++;
+    m_dram->hits_pim_num++;
   }
 
   if ((m_config->scheduler_type == DRAM_FRFCFS) || \

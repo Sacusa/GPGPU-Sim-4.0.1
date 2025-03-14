@@ -71,10 +71,10 @@ enum dram_ctrl_t {
     DRAM_FIFO = 1,
     DRAM_FRFCFS = 2,
     DRAM_FR_RR_FCFS = 3,
-    DRAM_GI = 4,
-    DRAM_MEM_FIRST = 5,
-    DRAM_PIM_FIRST = 6,
-    DRAM_PIM_FRFCFS = 7,
+    DRAM_F3FS = 4,
+    DRAM_GI = 5,
+    DRAM_MEM_FIRST = 6,
+    DRAM_PIM_FIRST = 7,
     NUM_DRAM_POLICIES
 };
 

@@ -307,10 +307,10 @@ class dram_t {
   friend class dram_scheduler;
   friend class frfcfs_scheduler;
   friend class fr_rr_fcfs_scheduler;
+  friend class f3fs_scheduler;
   friend class gi_scheduler;
   friend class mem_first_scheduler;
   friend class pim_first_scheduler;
-  friend class pim_frfcfs_scheduler;
 };
 
 #endif /*DRAM_H*/

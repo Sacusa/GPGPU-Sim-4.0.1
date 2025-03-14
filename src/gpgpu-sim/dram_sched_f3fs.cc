@@ -1,18 +1,18 @@
 #include "dram_sched.h"
-#include "dram_sched_pim_frfcfs.h"
+#include "dram_sched_f3fs.h"
 #include "../abstract_hardware_model.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "mem_latency_stat.h"
 
-pim_frfcfs_scheduler::pim_frfcfs_scheduler(const memory_config *config,
+f3fs_scheduler::f3fs_scheduler(const memory_config *config,
     dram_t *dm, memory_stats_t *stats) : dram_scheduler(config, dm, stats)
 {
   m_num_bypasses = 0;
   m_pim_cap = m_config->frfcfs_cap * m_config->max_pim_slowdown;
 }
 
-void pim_frfcfs_scheduler::update_mode() {
+void f3fs_scheduler::update_mode() {
   bool have_reads = m_num_pending > 0;
   bool have_writes = m_num_write_pending > 0;
   bool have_mem = have_reads || have_writes;
@@ -44,9 +44,9 @@ void pim_frfcfs_scheduler::update_mode() {
       m_num_bypasses = 0;
 
       if (cap_exceeded) {
-        m_pim2mem_switch_reason[PIM_FRFCFS_CAP_EXCEEDED]++;
+        m_pim2mem_switch_reason[F3FS_CAP_EXCEEDED]++;
       } else {
-        m_pim2mem_switch_reason[PIM_FRFCFS_OUT_OF_REQUESTS]++;
+        m_pim2mem_switch_reason[F3FS_OUT_OF_REQUESTS]++;
       }
 
 #ifdef DRAM_SCHED_VERIFY
@@ -85,9 +85,9 @@ void pim_frfcfs_scheduler::update_mode() {
       m_num_bypasses = 0;
 
       if (cap_exceeded) {
-        m_mem2pim_switch_reason[PIM_FRFCFS_CAP_EXCEEDED]++;
+        m_mem2pim_switch_reason[F3FS_CAP_EXCEEDED]++;
       } else {
-        m_mem2pim_switch_reason[PIM_FRFCFS_OUT_OF_REQUESTS]++;
+        m_mem2pim_switch_reason[F3FS_OUT_OF_REQUESTS]++;
       }
 
 #ifdef DRAM_SCHED_VERIFY

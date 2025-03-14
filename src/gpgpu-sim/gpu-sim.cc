@@ -231,16 +231,6 @@ void memory_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-bliss_blacklisting_threshold", OPT_UINT32,
       &bliss_blacklisting_threshold, "BLISS Blacklisting Threshold", "4");
 
-  option_parser_register(opp, "-dram_sched_queue_mem_time_ratio_high",
-      OPT_FLOAT, &dram_sched_queue_mem_time_ratio_high,
-      "DRAM Queue scheduler mem_time_ratio upper limit", "3");
-  option_parser_register(opp, "-dram_sched_queue_mem_time_ratio_low",
-      OPT_FLOAT, &dram_sched_queue_mem_time_ratio_low,
-      "DRAM Queue scheduler mem_time_ratio lower limit", "0.5");
-  option_parser_register(opp, "-dram_sched_queue_max_pim_batches",
-      OPT_UINT32, &dram_sched_queue_max_pim_batches,
-      "DRAM Queue scheduler num_pim_batches upper limit", "8");
-
   option_parser_register(opp, "-dram_artificial_wait_time", OPT_UINT32,
       &dram_artificial_wait_time,
       "Artificial wait time for each DRAM request", "0");

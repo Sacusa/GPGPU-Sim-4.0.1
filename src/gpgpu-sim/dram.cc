@@ -32,15 +32,9 @@
 #include "dram_sched_bliss.h"
 #include "dram_sched_fr_rr_fcfs.h"
 #include "dram_sched_gi.h"
-#include "dram_sched_gi_mem.h"
 #include "dram_sched_mem_first.h"
-#include "dram_sched_paws.h"
-#include "dram_sched_paws_new.h"
 #include "dram_sched_pim_first.h"
 #include "dram_sched_pim_frfcfs.h"
-#include "dram_sched_rr_batch_cap.h"
-#include "dram_sched_rr_mem.h"
-#include "dram_sched_rr_req_cap.h"
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "hashing.h"
@@ -173,32 +167,14 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
     case DRAM_GI:
       m_scheduler = new gi_scheduler(m_config, this, stats);
       break;
-    case DRAM_GI_MEM:
-      m_scheduler = new gi_mem_scheduler(m_config, this, stats);
-      break;
     case DRAM_MEM_FIRST:
       m_scheduler = new mem_first_scheduler(m_config, this, stats);
-      break;
-    case DRAM_PAWS:
-      m_scheduler = new paws_scheduler(m_config, this, stats);
-      break;
-    case DRAM_PAWS_NEW:
-      m_scheduler = new paws_new_scheduler(m_config, this, stats);
       break;
     case DRAM_PIM_FIRST:
       m_scheduler = new pim_first_scheduler(m_config, this, stats);
       break;
     case DRAM_PIM_FRFCFS:
       m_scheduler = new pim_frfcfs_scheduler(m_config, this, stats);
-      break;
-    case DRAM_RR_BATCH_CAP:
-      m_scheduler = new rr_batch_cap_scheduler(m_config, this, stats);
-      break;
-    case DRAM_RR_MEM:
-      m_scheduler = new rr_mem_scheduler(m_config, this, stats);
-      break;
-    case DRAM_RR_REQ_CAP:
-      m_scheduler = new rr_req_cap_scheduler(m_config, this, stats);
       break;
     default:
       printf("Error: Unknown DRAM scheduler type\n");
@@ -1419,187 +1395,6 @@ void dram_t::print(FILE *simFile) const {
           sched->m_pim2mem_switch_reason[
             static_cast<pim_frfcfs_switch_reason>(i)]);
     }
-  }
-
-  if (m_config->scheduler_type == DRAM_RR_BATCH_CAP) {
-    rr_batch_cap_scheduler *sched = (rr_batch_cap_scheduler*) m_scheduler;
-
-    sched->finalize_stats();
-
-    std::vector<unsigned long long> stats = get_stats<unsigned long long>(
-        &(sched->m_pim_batch_exec_time));
-
-    printf("\nAvgPimBatchExecTime = %u", stats[0]);
-    printf("\nMaxPimBatchExecTime = %u", stats[2]);
-    printf("\nStDevPimBatchExecTime = %u", stats[1]);
-
-    unsigned len = sched->m_pim_batch_exec_time.size();
-    double avg_batch_size = 0;
-    if (len > 0) { avg_batch_size = n_pim / len; }
-    printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
-
-    // MEM batch execution time
-    stats = get_stats<unsigned long long>(&(sched->m_mem_batch_exec_time));
-
-    printf("\nAvgMemBatchExecTime = %u", stats[0]);
-    printf("\nMaxMemBatchExecTime = %u", stats[2]);
-    printf("\nStDevMemBatchExecTime = %u\n", stats[1]);
-
-    // Wasted MEM batch cycles
-    stats = get_stats<unsigned long long>(&(sched->m_mem_wasted_cycles));
-
-    printf("\nAvgMemWastedCycles = %u", stats[0]);
-    printf("\nMaxMemWastedCycles = %u", stats[2]);
-    printf("\nStDevMemWastedCycles = %u\n", stats[1]);
-  }
-
-  if (m_config->scheduler_type == DRAM_RR_REQ_CAP) {
-    rr_req_cap_scheduler *sched = (rr_req_cap_scheduler*) m_scheduler;
-
-    sched->finalize_stats();
-
-    std::vector<unsigned long long> stats = get_stats<unsigned long long>(
-        &(sched->m_pim_batch_exec_time));
-
-    printf("\nAvgPimBatchExecTime = %u", stats[0]);
-    printf("\nMaxPimBatchExecTime = %u", stats[2]);
-    printf("\nStDevPimBatchExecTime = %u", stats[1]);
-
-    unsigned len = sched->m_pim_batch_exec_time.size();
-    double avg_batch_size = 0;
-    if (len > 0) { avg_batch_size = n_pim / len; }
-    printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
-
-    // MEM batch execution time
-    stats = get_stats<unsigned long long>(&(sched->m_mem_batch_exec_time));
-
-    printf("\nAvgMemBatchExecTime = %u", stats[0]);
-    printf("\nMaxMemBatchExecTime = %u", stats[2]);
-    printf("\nStDevMemBatchExecTime = %u\n", stats[1]);
-
-    // Wasted MEM batch cycles
-    stats = get_stats<unsigned long long>(&(sched->m_mem_wasted_cycles));
-
-    printf("\nAvgMemWastedCycles = %u", stats[0]);
-    printf("\nMaxMemWastedCycles = %u", stats[2]);
-    printf("\nStDevMemWastedCycles = %u\n", stats[1]);
-  }
-
-  if (m_config->scheduler_type == DRAM_PAWS) {
-    paws_scheduler *sched = (paws_scheduler*)m_scheduler;
-
-    printf("\nBank stall time for PIM:\n");
-    for (unsigned b = 0; b < m_config->nbk; b++) {
-      printf("Bank_%d_stall_time = %llu\n", b,sched->m_bank_pim_stall_time[b]);
-    }
-
-    printf("\nBank waste time for PIM:\n");
-    for (unsigned b = 0; b < m_config->nbk; b++) {
-      printf("Bank_%d_waste_time = %llu\n", b,sched->m_bank_pim_waste_time[b]);
-    }
-
-    printf("\nMEM2PIM switch readiness latency:\n");
-
-    double sum = 0;
-    double mean = 0;
-    double sq = 0;
-    double stdev = 0;
-    double max = 0;
-    unsigned long long len = sched->m_mem2pim_switch_latency.size();
-
-    if (len > 0) {
-      sum = std::accumulate(sched->m_mem2pim_switch_latency.begin(),
-          sched->m_mem2pim_switch_latency.end(), 0.0);
-      mean = sum / len;
-      sq = std::inner_product(sched->m_mem2pim_switch_latency.begin(),
-          sched->m_mem2pim_switch_latency.end(),
-          sched->m_mem2pim_switch_latency.begin(), 0.0);
-      stdev = std::sqrt(sq / len - mean * mean);
-      max = *std::max_element(std::begin(sched->m_mem2pim_switch_latency),
-          std::end(sched->m_mem2pim_switch_latency));
-    }
-
-    printf("\nAvgSwitchReadinessLatency = %.6f", mean);
-    printf("\nMaxSwitchReadinessLatency = %.6f", max);
-    printf("\nStDevSwitchReadinessLatency = %.6f", stdev);
-
-    unsigned long long len_non_zeros = len -
-        std::count(sched->m_mem2pim_switch_latency.begin(),
-                sched->m_mem2pim_switch_latency.end(), 0);
-
-    if (len_non_zeros > 0) {
-      mean = sum / len_non_zeros;
-      stdev = std::sqrt(sq / len_non_zeros - mean * mean);
-    }
-
-    printf("\nAvgNonZeroSwitchReadinessLatency = %.6f", mean);
-    printf("\nStDevNonZeroSwitchReadinessLatency = %.6f\n", stdev);
-
-    std::vector<unsigned> stats = get_stats<unsigned>(
-        &(sched->m_mem_cap));
-
-    printf("\nAvgMemCap = %u", stats[0]);
-    printf("\nMaxMemCap = %u", stats[2]);
-    printf("\nStDevMemCap = %u", stats[1]);
-
-    stats = get_stats<unsigned>(
-        &(sched->m_max_mem_requests_issued_at_any_bank));
-
-    printf("\nAvgMemRequestsIssuedPerBank = %u", stats[0]);
-    printf("\nMaxMemRequestsIssuedPerBank = %u", stats[2]);
-    printf("\nStDevMemRequestsIssuedPerBank = %u", stats[1]);
-
-    stats = get_stats<unsigned>(&(sched->m_pim_requests_issued));
-
-    printf("\nAvgPimRequestsIssued = %u", stats[0]);
-    printf("\nMaxPimRequestsIssued = %u", stats[2]);
-    printf("\nStDevPimRequestsIssued = %u", stats[1]);
-
-    printf("\nMEM2PIM Switch Breakdown:\n");
-    for (int i = 0; i < PAWS_NUM_SWITCH_REASONS; i++) {
-      unsigned count = std::count(sched->m_mem2pim_switch_reason.begin(),
-          sched->m_mem2pim_switch_reason.end(), i);
-      printf("  %s: %u\n", paws_switch_reason_str[i].c_str(), count);
-    }
-
-    printf("\nPIM2MEM Switch Breakdown:\n");
-    for (int i = 0; i < PAWS_NUM_SWITCH_REASONS; i++) {
-      unsigned count = std::count(sched->m_pim2mem_switch_reason.begin(),
-          sched->m_pim2mem_switch_reason.end(), i);
-      printf("  %s: %u\n", paws_switch_reason_str[i].c_str(), count);
-    }
-  }
-
-  if (m_config->scheduler_type == DRAM_PAWS_NEW) {
-    paws_new_scheduler *sched = (paws_new_scheduler*) m_scheduler;
-
-    sched->finalize_stats();
-
-    std::vector<unsigned long long> stats = get_stats<unsigned long long>(
-        &(sched->m_pim_batch_exec_time));
-
-    printf("\nAvgPimBatchExecTime = %u", stats[0]);
-    printf("\nMaxPimBatchExecTime = %u", stats[2]);
-    printf("\nStDevPimBatchExecTime = %u", stats[1]);
-
-    unsigned len = sched->m_pim_batch_exec_time.size();
-    double avg_batch_size = 0;
-    if (len > 0) { avg_batch_size = n_pim / len; }
-    printf("\nAvgPimBatchSize = %.6f\n", avg_batch_size);
-
-    // MEM batch execution time
-    stats = get_stats<unsigned long long>(&(sched->m_mem_batch_exec_time));
-
-    printf("\nAvgMemBatchExecTime = %u", stats[0]);
-    printf("\nMaxMemBatchExecTime = %u", stats[2]);
-    printf("\nStDevMemBatchExecTime = %u\n", stats[1]);
-
-    // Wasted MEM batch cycles
-    stats = get_stats<unsigned long long>(&(sched->m_mem_wasted_cycles));
-
-    printf("\nAvgMemWastedCycles = %u", stats[0]);
-    printf("\nMaxMemWastedCycles = %u", stats[2]);
-    printf("\nStDevMemWastedCycles = %u\n", stats[1]);
   }
 
   if (m_config->scheduler_type == DRAM_FR_RR_FCFS) {

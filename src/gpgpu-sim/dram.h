@@ -308,15 +308,9 @@ class dram_t {
   friend class frfcfs_scheduler;
   friend class fr_rr_fcfs_scheduler;
   friend class gi_scheduler;
-  friend class gi_mem_scheduler;
   friend class mem_first_scheduler;
-  friend class paws_scheduler;
-  friend class paws_new_scheduler;
   friend class pim_first_scheduler;
   friend class pim_frfcfs_scheduler;
-  friend class rr_batch_cap_scheduler;
-  friend class rr_mem_scheduler;
-  friend class rr_req_cap_scheduler;
 };
 
 #endif /*DRAM_H*/
